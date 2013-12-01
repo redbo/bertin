@@ -6,14 +6,12 @@ package pickle
 
 #define INLINE __attribute__((always_inline))
 
-INLINE void myPy_DECREF(PyObject *o) {Py_DECREF(o);}
 INLINE int myPyString_Check(PyObject *o) {return PyString_Check(o);}
 INLINE int myPyDict_Check(PyObject *o) {return PyDict_Check(o);}
 INLINE int myPyInt_Check(PyObject *o) {return PyInt_Check(o);}
 INLINE PyObject *PyObject_CallFunction1(PyObject *f, PyObject *o1)
     {return PyObject_CallFunctionObjArgs(f, o1, NULL);}
-
-INLINE void RunPython(char *code) {PyRun_SimpleString(code);}
+INLINE PyObject *PyNone() {Py_INCREF(Py_None); return Py_None;}
 */
 import "C"
 import (
@@ -32,7 +30,7 @@ func _pickle_init () {
         var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
         pickle_loads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
         pickle_dumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
-        C.myPy_DECREF(cPickle)
+        C.Py_DecRef(cPickle)
         initialized = 1
     }
 }
@@ -51,7 +49,7 @@ func PyObjToInterface(o *C.PyObject) (interface {}) {
             value := C.PyTuple_GetItem(item, 1)
             v[PyObjToInterface(key)] = PyObjToInterface(value)
         }
-        C.myPy_DECREF(items)
+        C.Py_DecRef(items)
         return v
     }
     return nil
@@ -61,8 +59,8 @@ func DictAddItem(dict *C.PyObject, key interface{}, value interface{}) {
     pykey := InterfaceToPyObj(key)
     pyvalue := InterfaceToPyObj(value)
     C.PyDict_SetItem(dict, pykey, pyvalue)
-    C.myPy_DECREF(pykey)
-    C.myPy_DECREF(pyvalue)
+    C.Py_DecRef(pykey)
+    C.Py_DecRef(pyvalue)
 }
 
 func InterfaceToPyObj(o interface{}) (*C.PyObject) {
@@ -87,6 +85,8 @@ func InterfaceToPyObj(o interface{}) (*C.PyObject) {
             dict := C.PyDict_New()
             for key, value := range o.(map[string]interface{}) {DictAddItem(dict, key, value)}
             return dict
+        case nil:
+            return C.PyNone()
         default:
             return nil
     }
@@ -97,12 +97,12 @@ func Loads(data string) (interface{}) {
     pickle_lock.Lock()
     _pickle_init()
     datastr := C.CString(data)
-    defer C.free(unsafe.Pointer(datastr))
     str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
+    C.free(unsafe.Pointer(datastr))
     obj := C.PyObject_CallFunction1(pickle_loads, str)
     v := PyObjToInterface(obj)
-    C.myPy_DECREF(obj)
-    C.myPy_DECREF(str)
+    C.Py_DecRef(obj)
+    C.Py_DecRef(str)
     pickle_lock.Unlock()
     return v
 }
@@ -113,8 +113,8 @@ func Dumps(v interface{}) (string) {
     obj := InterfaceToPyObj(v)
     str := C.PyObject_CallFunction1(pickle_dumps, obj)
     gostr := PyObjToInterface(str)
-    C.myPy_DECREF(obj)
-    C.myPy_DECREF(str)
+    C.Py_DecRef(obj)
+    C.Py_DecRef(str)
     pickle_lock.Unlock()
     return gostr.(string)
 }
