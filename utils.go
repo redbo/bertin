@@ -13,8 +13,6 @@ import (
     "errors"
     "net/url"
     "time"
-
-    "github.com/redbo/bertin/pickle"
 )
 
 const TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT"
@@ -40,12 +38,12 @@ func ReadMetadata(fd int) (map[interface{}]interface{}) {
         }
         offset += length
     }
-    v := pickle.Loads(string(pickled_metadata[0:offset]))
+    v := PickleLoads(string(pickled_metadata[0:offset]))
     return v.(map[interface{}]interface{})
 }
 
 func WriteMetadata(fd int, v map[string]interface{}) {
-    buf := pickle.Dumps(v)
+    buf := PickleDumps(v)
     for index := 0; len(buf) > 0; index++ {
         var metadata_name string
         if index == 0 {
@@ -70,10 +68,10 @@ func InvalidateHash(hash_dir string) {
     if err != nil {
         return
     }
-    v := pickle.Loads(string(data))
+    v := PickleLoads(string(data))
     v.(map[string]interface{})[suff_dir] = nil
     // TODO: tmp file, fsync, rename
-    ioutil.WriteFile(pkl_file, []byte(pickle.Dumps(v)), 0666)
+    ioutil.WriteFile(pkl_file, []byte(PickleDumps(v)), 0666)
 }
 
 func ObjHashDir(vars map[string]string, config ServerConfig) (string) {
