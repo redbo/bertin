@@ -1,4 +1,4 @@
 This is an experimental Swift object server written in Go.
 
-The functional tests all pass on SAIO.
+It is incomplete, but the Swift functional tests all pass on a SAIO.
 
