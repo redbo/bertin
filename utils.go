@@ -12,9 +12,13 @@ import (
     "strconv"
     "errors"
     "net/url"
+    "time"
 
     "github.com/redbo/bertin/pickle"
 )
+
+const TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT"
+const AltTimeFormat = "Mon Jan  2 15:04:05 2006"
 
 type httpRange struct {
     start, end int64
@@ -151,7 +155,7 @@ func UpdateContainer(operation string, metadata map[string]interface{}, request 
     }
 }
 
-func parseRange(range_header string, file_size int64) ([]httpRange, error) {
+func ParseRange(range_header string, file_size int64) ([]httpRange, error) {
     range_header = strings.Replace(strings.ToLower(range_header), " ", "", -1)
     if !strings.HasPrefix(range_header, "bytes=") {
         return nil, nil
@@ -209,5 +213,12 @@ func parseRange(range_header string, file_size int64) ([]httpRange, error) {
         }
     }
     return req_ranges, nil
+}
+
+func ParseDate(date_str string) (time.Time, error) {
+    if date_str == "" {return time.Now(), errors.New("invalid time")}
+    if ius, err := time.Parse(TimeFormat, date_str); err == nil {return ius, nil}
+    if ius, err := time.Parse(AltTimeFormat, date_str); err == nil {return ius, nil}
+    return time.Now(), errors.New("invalid time")
 }
 

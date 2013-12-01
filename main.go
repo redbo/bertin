@@ -11,7 +11,6 @@ import (
     "time"
     "strconv"
     "net/http"
-    "errors"
 
     "github.com/gorilla/context"
     "github.com/keep94/weblogs"
@@ -25,40 +24,9 @@ type ServerConfig struct {
     port int64
 }
 
-const TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT"
-const AltTimeFormat = "Mon Jan  2 15:04:05 2006"
-
 func ErrorResponse(writer http.ResponseWriter, status int) {
     writer.Header().Set("Content-Length", "0")
     writer.WriteHeader(status)
-}
-
-func ParseDate(date_str string) (time.Time, error) {
-    if date_str == "" {return time.Now(), errors.New("invalid time")}
-    if ius, err := time.Parse(TimeFormat, date_str); err == nil {return ius, nil}
-    if ius, err := time.Parse(AltTimeFormat, date_str); err == nil {return ius, nil}
-    return time.Now(), errors.New("invalid time")
-}
-
-func ServeContent(writer http.ResponseWriter, request *http.Request, content io.ReadSeeker) {
-    if range_header := request.Header.Get("Range"); range_header != "" {
-        file_size, _:= content.Seek(0, os.SEEK_END)
-        ranges, err := parseRange(range_header, file_size)
-        if err != nil {
-            ErrorResponse(writer, http.StatusRequestedRangeNotSatisfiable)
-            return
-        }
-        if ranges != nil && len(ranges) == 1 {
-            _, _ = content.Seek(ranges[0].start, os.SEEK_SET)
-            writer.Header().Set("Content-Length", strconv.FormatInt(int64(ranges[0].end - ranges[0].start), 10))
-            writer.WriteHeader(http.StatusPartialContent)
-            io.CopyN(writer, content, ranges[0].end - ranges[0].start)
-            return
-        }
-    }
-    content.Seek(0, os.SEEK_SET)
-    writer.WriteHeader(http.StatusOK)
-    io.Copy(writer, content)
 }
 
 func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
@@ -107,7 +75,29 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
             headers.Set(key.(string), value.(string))
         }
     }
-    ServeContent(writer, request, file)
+
+    if range_header := request.Header.Get("Range"); range_header != "" {
+        file_size, _:= file.Seek(0, os.SEEK_END)
+        ranges, err := ParseRange(range_header, file_size)
+        if err != nil {
+            ErrorResponse(writer, http.StatusRequestedRangeNotSatisfiable)
+            return
+        }
+        if ranges != nil && len(ranges) == 1 {
+            _, _ = file.Seek(ranges[0].start, os.SEEK_SET)
+            writer.Header().Set("Content-Length", strconv.FormatInt(int64(ranges[0].end - ranges[0].start), 10))
+            writer.WriteHeader(http.StatusPartialContent)
+            io.CopyN(writer, file, ranges[0].end - ranges[0].start)
+            return
+        }
+    }
+    file.Seek(0, os.SEEK_SET)
+    writer.WriteHeader(http.StatusOK)
+    if request.Method == "GET" {
+        io.Copy(writer, file)
+    } else {
+        writer.Write([]byte{})
+    }
 }
 
 func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
