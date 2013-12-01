@@ -85,12 +85,9 @@ func InterfaceToPyObj(o interface{}) (*C.PyObject) {
             dict := C.PyDict_New()
             for key, value := range o.(map[string]interface{}) {DictAddItem(dict, key, value)}
             return dict
-        case nil:
-            return C.PyNone()
         default:
-            return nil
+            return C.PyNone()
     }
-    return nil
 }
 
 func Loads(data string) (interface{}) {
