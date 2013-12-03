@@ -18,10 +18,10 @@ import (
 )
 
 type ServerConfig struct {
-	driveRoot       string
+	driveRoot      string
 	hashPathPrefix string
 	hashPathSuffix string
-	port             int64
+	port           int64
 }
 
 func ErrorResponse(writer http.ResponseWriter, status int) {
