@@ -15,8 +15,8 @@ INLINE PyObject *PyNone() {Py_INCREF(Py_None); return Py_None;}
 */
 import "C"
 import (
-    "sync"
-    "unsafe"
+	"sync"
+	"unsafe"
 )
 
 var initialized int = 0
@@ -24,95 +24,100 @@ var pickle_loads *C.PyObject
 var pickle_dumps *C.PyObject
 var pickle_lock sync.Mutex
 
-func _pickle_init () {
-    if initialized == 0 {
-        C.Py_Initialize()
-        var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
-        pickle_loads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
-        pickle_dumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
-        C.Py_DecRef(cPickle)
-        initialized = 1
-    }
+func _pickle_init() {
+	if initialized == 0 {
+		C.Py_Initialize()
+		var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
+		pickle_loads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
+		pickle_dumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
+		C.Py_DecRef(cPickle)
+		initialized = 1
+	}
 }
 
-func pyObjToInterface(o *C.PyObject) (interface {}) {
-    if C.myPyString_Check(o) != 0 {
-        return C.GoStringN(C.PyString_AsString(o), C.int(C.PyString_Size(o)))
-    } else if C.myPyInt_Check(o) != 0 {
-        return int64(C.PyInt_AsLong(o))
-    } else if C.myPyDict_Check(o) != 0 {
-        v := make(map[interface{}]interface{})
-        items := C.PyDict_Items(o)
-        for i := 0; i < int(C.PyList_Size(items)); i++ {
-            item := C.PyList_GetItem(items, C.Py_ssize_t(i))
-            key := C.PyTuple_GetItem(item, 0)
-            value := C.PyTuple_GetItem(item, 1)
-            v[pyObjToInterface(key)] = pyObjToInterface(value)
-        }
-        C.Py_DecRef(items)
-        return v
-    }
-    return nil
+func pyObjToInterface(o *C.PyObject) interface{} {
+	if C.myPyString_Check(o) != 0 {
+		return C.GoStringN(C.PyString_AsString(o), C.int(C.PyString_Size(o)))
+	} else if C.myPyInt_Check(o) != 0 {
+		return int64(C.PyInt_AsLong(o))
+	} else if C.myPyDict_Check(o) != 0 {
+		v := make(map[interface{}]interface{})
+		items := C.PyDict_Items(o)
+		for i := 0; i < int(C.PyList_Size(items)); i++ {
+			item := C.PyList_GetItem(items, C.Py_ssize_t(i))
+			key := C.PyTuple_GetItem(item, 0)
+			value := C.PyTuple_GetItem(item, 1)
+			v[pyObjToInterface(key)] = pyObjToInterface(value)
+		}
+		C.Py_DecRef(items)
+		return v
+	}
+	return nil
 }
 
 func dictAddItem(dict *C.PyObject, key interface{}, value interface{}) {
-    pykey := interfaceToPyObj(key)
-    pyvalue := interfaceToPyObj(value)
-    C.PyDict_SetItem(dict, pykey, pyvalue)
-    C.Py_DecRef(pykey)
-    C.Py_DecRef(pyvalue)
+	pykey := interfaceToPyObj(key)
+	pyvalue := interfaceToPyObj(value)
+	C.PyDict_SetItem(dict, pykey, pyvalue)
+	C.Py_DecRef(pykey)
+	C.Py_DecRef(pyvalue)
 }
 
-func interfaceToPyObj(o interface{}) (*C.PyObject) {
-    switch o.(type) {
-        case int:
-            return C.PyInt_FromLong(C.long(o.(int)))
-        case int64:
-            return C.PyInt_FromLong(C.long(o.(int64)))
-        case string:
-            strvalue := C.CString(o.(string))
-            defer C.free(unsafe.Pointer(strvalue))
-            return C.PyString_FromStringAndSize(strvalue, C.Py_ssize_t(len(o.(string))))
-        case map[interface{}]interface{}:
-            dict := C.PyDict_New()
-            for key, value := range o.(map[interface{}]interface{}) {dictAddItem(dict, key, value)}
-            return dict
-        case map[string]string:
-            dict := C.PyDict_New()
-            for key, value := range o.(map[string]string) {dictAddItem(dict, key, value)}
-            return dict
-        case map[string]interface{}:
-            dict := C.PyDict_New()
-            for key, value := range o.(map[string]interface{}) {dictAddItem(dict, key, value)}
-            return dict
-        default:
-            return C.PyNone()
-    }
+func interfaceToPyObj(o interface{}) *C.PyObject {
+	switch o.(type) {
+	case int:
+		return C.PyInt_FromLong(C.long(o.(int)))
+	case int64:
+		return C.PyInt_FromLong(C.long(o.(int64)))
+	case string:
+		strvalue := C.CString(o.(string))
+		defer C.free(unsafe.Pointer(strvalue))
+		return C.PyString_FromStringAndSize(strvalue, C.Py_ssize_t(len(o.(string))))
+	case map[interface{}]interface{}:
+		dict := C.PyDict_New()
+		for key, value := range o.(map[interface{}]interface{}) {
+			dictAddItem(dict, key, value)
+		}
+		return dict
+	case map[string]string:
+		dict := C.PyDict_New()
+		for key, value := range o.(map[string]string) {
+			dictAddItem(dict, key, value)
+		}
+		return dict
+	case map[string]interface{}:
+		dict := C.PyDict_New()
+		for key, value := range o.(map[string]interface{}) {
+			dictAddItem(dict, key, value)
+		}
+		return dict
+	default:
+		return C.PyNone()
+	}
 }
 
-func PickleLoads(data string) (interface{}) {
-    pickle_lock.Lock()
-    _pickle_init()
-    datastr := C.CString(data)
-    str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
-    C.free(unsafe.Pointer(datastr))
-    obj := C.PyObject_CallFunction1(pickle_loads, str)
-    v := pyObjToInterface(obj)
-    C.Py_DecRef(obj)
-    C.Py_DecRef(str)
-    pickle_lock.Unlock()
-    return v
+func PickleLoads(data string) interface{} {
+	pickle_lock.Lock()
+	_pickle_init()
+	datastr := C.CString(data)
+	str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
+	C.free(unsafe.Pointer(datastr))
+	obj := C.PyObject_CallFunction1(pickle_loads, str)
+	v := pyObjToInterface(obj)
+	C.Py_DecRef(obj)
+	C.Py_DecRef(str)
+	pickle_lock.Unlock()
+	return v
 }
 
-func PickleDumps(v interface{}) (string) {
-    pickle_lock.Lock()
-    _pickle_init()
-    obj := interfaceToPyObj(v)
-    str := C.PyObject_CallFunction1(pickle_dumps, obj)
-    gostr := pyObjToInterface(str)
-    C.Py_DecRef(obj)
-    C.Py_DecRef(str)
-    pickle_lock.Unlock()
-    return gostr.(string)
+func PickleDumps(v interface{}) string {
+	pickle_lock.Lock()
+	_pickle_init()
+	obj := interfaceToPyObj(v)
+	str := C.PyObject_CallFunction1(pickle_dumps, obj)
+	gostr := pyObjToInterface(str)
+	C.Py_DecRef(obj)
+	C.Py_DecRef(str)
+	pickle_lock.Unlock()
+	return gostr.(string)
 }
-
