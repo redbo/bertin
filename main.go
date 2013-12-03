@@ -45,8 +45,19 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
     }
     defer file.Close()
     metadata := ReadMetadata(int(file.Fd()))
-    last_modified_unix, err := strconv.ParseInt(metadata["X-Timestamp"].(string)[0:10], 10, 64)
-    last_modified := time.Unix(last_modified_unix, 0)
+
+    if delete_at, ok := metadata["X-Delete-At"]; ok {
+        if delete_time, err := ParseDate(delete_at.(string)); err == nil && delete_time.Before(time.Now()) {
+            ErrorResponse(writer, http.StatusNotFound)
+            return
+        }
+    }
+
+    last_modified, err := ParseDate(metadata["X-Timestamp"].(string))
+    if err != nil {
+        ErrorResponse(writer, http.StatusInternalServerError)
+        return
+    }
 
     if im := request.Header.Get("If-Match"); im != "" && !strings.Contains(im, metadata["ETag"].(string)) {
         writer.WriteHeader(http.StatusPreconditionFailed)
@@ -69,7 +80,7 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
     headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
     headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
     headers.Set("Content-Type", metadata["Content-Type"].(string))
-    headers.Set("Last-Modified", last_modified.Format(TimeFormat))
+    headers.Set("Last-Modified", last_modified.Format(time.RFC1123))
     for key, value := range metadata {
         if strings.HasPrefix(key.(string), "X-Object-") {
             headers.Set(key.(string), value.(string))

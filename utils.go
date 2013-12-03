@@ -13,10 +13,8 @@ import (
     "errors"
     "net/url"
     "time"
+    "math"
 )
-
-const TimeFormat = "Mon, 02 Jan 2006 15:04:05 GMT"
-const AltTimeFormat = "Mon Jan  2 15:04:05 2006"
 
 type httpRange struct {
     start, end int64
@@ -215,8 +213,13 @@ func ParseRange(range_header string, file_size int64) ([]httpRange, error) {
 
 func ParseDate(date_str string) (time.Time, error) {
     if date_str == "" {return time.Now(), errors.New("invalid time")}
-    if ius, err := time.Parse(TimeFormat, date_str); err == nil {return ius, nil}
-    if ius, err := time.Parse(AltTimeFormat, date_str); err == nil {return ius, nil}
+    if ius, err := time.Parse(time.RFC1123, date_str); err == nil {return ius, nil}
+    if ius, err := time.Parse(time.RFC1123Z, date_str); err == nil {return ius, nil}
+    if ius, err := time.Parse(time.ANSIC, date_str); err == nil {return ius, nil}
+    if timestamp, err := strconv.ParseFloat(date_str, 64); err == nil {
+        nans := int64(math.Mod(timestamp * 1.0e9, 1e9))
+        return time.Unix(int64(timestamp), nans), nil
+    }
     return time.Now(), errors.New("invalid time")
 }
 
