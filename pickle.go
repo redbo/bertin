@@ -20,16 +20,16 @@ import (
 )
 
 var initialized int = 0
-var pickle_loads *C.PyObject
-var pickle_dumps *C.PyObject
-var pickle_lock sync.Mutex
+var pickleLoads *C.PyObject
+var pickleDumps *C.PyObject
+var pickleLock sync.Mutex
 
-func _pickle_init() {
+func pickleInit() {
 	if initialized == 0 {
 		C.Py_Initialize()
 		var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
-		pickle_loads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
-		pickle_dumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
+		pickleLoads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
+		pickleDumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
 		C.Py_DecRef(cPickle)
 		initialized = 1
 	}
@@ -97,27 +97,27 @@ func interfaceToPyObj(o interface{}) *C.PyObject {
 }
 
 func PickleLoads(data string) interface{} {
-	pickle_lock.Lock()
-	_pickle_init()
+	pickleLock.Lock()
+	pickleInit()
 	datastr := C.CString(data)
 	str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
 	C.free(unsafe.Pointer(datastr))
-	obj := C.PyObject_CallFunction1(pickle_loads, str)
+	obj := C.PyObject_CallFunction1(pickleLoads, str)
 	v := pyObjToInterface(obj)
 	C.Py_DecRef(obj)
 	C.Py_DecRef(str)
-	pickle_lock.Unlock()
+	pickleLock.Unlock()
 	return v
 }
 
 func PickleDumps(v interface{}) string {
-	pickle_lock.Lock()
-	_pickle_init()
+	pickleLock.Lock()
+	pickleInit()
 	obj := interfaceToPyObj(v)
-	str := C.PyObject_CallFunction1(pickle_dumps, obj)
+	str := C.PyObject_CallFunction1(pickleDumps, obj)
 	gostr := pyObjToInterface(str)
 	C.Py_DecRef(obj)
 	C.Py_DecRef(str)
-	pickle_lock.Unlock()
+	pickleLock.Unlock()
 	return gostr.(string)
 }

@@ -21,77 +21,77 @@ type httpRange struct {
 }
 
 func ReadMetadata(fd int) map[interface{}]interface{} {
-	var pickled_metadata [32768]byte
+	var pickledMetadata [32768]byte
 	offset := 0
 	for index := 0; ; index += 1 {
-		var metadata_name string
+		var metadataName string
 		if index == 0 {
-			metadata_name = "user.swift.metadata"
+			metadataName = "user.swift.metadata"
 		} else {
-			metadata_name = fmt.Sprintf("user.swift.metadata%d", index)
+			metadataName = fmt.Sprintf("user.swift.metadata%d", index)
 		}
-		length := FGetXattr(fd, metadata_name, pickled_metadata[offset:])
+		length := FGetXattr(fd, metadataName, pickledMetadata[offset:])
 		if length <= 0 {
 			break
 		}
 		offset += length
 	}
-	v := PickleLoads(string(pickled_metadata[0:offset]))
+	v := PickleLoads(string(pickledMetadata[0:offset]))
 	return v.(map[interface{}]interface{})
 }
 
 func WriteMetadata(fd int, v map[string]interface{}) {
 	buf := PickleDumps(v)
 	for index := 0; len(buf) > 0; index++ {
-		var metadata_name string
+		var metadataName string
 		if index == 0 {
-			metadata_name = "user.swift.metadata"
+			metadataName = "user.swift.metadata"
 		} else {
-			metadata_name = fmt.Sprintf("user.swift.metadata%d", index)
+			metadataName = fmt.Sprintf("user.swift.metadata%d", index)
 		}
 		writelen := 254
 		if len(buf) < writelen {
 			writelen = len(buf)
 		}
-		FSetXattr(fd, metadata_name, []byte(buf[0:writelen]))
+		FSetXattr(fd, metadataName, []byte(buf[0:writelen]))
 		buf = buf[writelen:len(buf)]
 	}
 }
 
-func InvalidateHash(hash_dir string) {
-	suff_dir := filepath.Dir(hash_dir)
-	partition_dir := filepath.Dir(suff_dir)
-	pkl_file := fmt.Sprintf("%s/hashes.pkl", partition_dir)
-	data, err := ioutil.ReadFile(pkl_file)
+func InvalidateHash(hashDir string) {
+	suffDir := filepath.Dir(hashDir)
+	partitionDir := filepath.Dir(suffDir)
+	pklFile := fmt.Sprintf("%s/hashes.pkl", partitionDir)
+	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
 		return
 	}
 	v := PickleLoads(string(data))
-	v.(map[string]interface{})[suff_dir] = nil
+	v.(map[string]interface{})[suffDir] = nil
 	// TODO: tmp file, fsync, rename
-	ioutil.WriteFile(pkl_file, []byte(PickleDumps(v)), 0666)
+	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
 }
 
 func ObjHashDir(vars map[string]string, config ServerConfig) string {
 	h := md5.New()
-	io.WriteString(h, fmt.Sprintf("%s/%s/%s/%s%s", config.hash_path_prefix, vars["account"],
-		vars["container"], vars["obj"], config.hash_path_suffix))
-	hex_hash := fmt.Sprintf("%x", h.Sum(nil))
-	suffix := hex_hash[29:32]
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s", config.drive_root, vars["device"], "objects", vars["partition"], suffix, hex_hash)
+	io.WriteString(h, fmt.Sprintf("%s/%s/%s/%s%s", config.hashPathPrefix, vars["account"],
+		vars["container"], vars["obj"], config.hashPathSuffix))
+	hexHash := fmt.Sprintf("%x", h.Sum(nil))
+	suffix := hexHash[29:32]
+	return fmt.Sprintf("%s/%s/%s/%s/%s/%s", config.driveRoot, vars["device"], "objects", vars["partition"], suffix, hexHash)
 }
 
 func ObjTempDir(vars map[string]string, config ServerConfig) string {
-	return fmt.Sprintf("%s/%s/%s", config.drive_root, vars["device"], "tmp")
+	return fmt.Sprintf("%s/%s/%s", config.driveRoot, vars["device"], "tmp")
 }
 
 func PrimaryFile(directory string) string {
-	file_list, err := ioutil.ReadDir(directory)
+	fileList, err := ioutil.ReadDir(directory)
 	if err != nil {
 		return ""
 	}
-	for index := len(file_list) - 1; index >= 0; index-- {
-		filename := file_list[index].Name()
+	for index := len(fileList) - 1; index >= 0; index-- {
+		filename := fileList[index].Name()
 		if strings.HasSuffix(filename, ".ts") || strings.HasSuffix(filename, ".data") {
 			return filename
 		}
@@ -100,17 +100,17 @@ func PrimaryFile(directory string) string {
 }
 
 func CleanupHashDir(directory string) {
-	file_list, err := ioutil.ReadDir(directory)
+	fileList, err := ioutil.ReadDir(directory)
 	if err != nil {
 		return
 	}
-	delete_rest := false
-	for index := len(file_list) - 1; index >= 0; index-- {
-		filename := file_list[index].Name()
-		if delete_rest {
+	deleteRest := false
+	for index := len(fileList) - 1; index >= 0; index-- {
+		filename := fileList[index].Name()
+		if deleteRest {
 			os.RemoveAll(fmt.Sprintf("%s/%s", directory, filename))
 		} else if strings.HasSuffix(filename, ".ts") || strings.HasSuffix(filename, ".data") {
-			delete_rest = true
+			deleteRest = true
 		}
 	}
 }
@@ -151,15 +151,15 @@ func UpdateContainer(operation string, metadata map[string]interface{}, request 
 	}
 }
 
-func ParseRange(range_header string, file_size int64) ([]httpRange, error) {
-	range_header = strings.Replace(strings.ToLower(range_header), " ", "", -1)
-	if !strings.HasPrefix(range_header, "bytes=") {
+func ParseRange(rangeHeader string, fileSize int64) ([]httpRange, error) {
+	rangeHeader = strings.Replace(strings.ToLower(rangeHeader), " ", "", -1)
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
 		return nil, nil
 	}
-	range_header = range_header[6:]
-	var req_ranges []httpRange
-	range_strings := strings.Split(range_header, ",")
-	for _, rng := range range_strings {
+	rangeHeader = rangeHeader[6:]
+	var reqRanges []httpRange
+	rangeStrings := strings.Split(rangeHeader, ",")
+	for _, rng := range rangeStrings {
 		beginend := strings.Split(rng, "-")
 		if len(beginend) != 2 || (beginend[0] == "" && beginend[1] == "") {
 			return nil, errors.New("invalid range format")
@@ -171,18 +171,18 @@ func ParseRange(range_header string, file_size int64) ([]httpRange, error) {
 			}
 			if end == 0 {
 				return nil, errors.New("zero end with no begin")
-			} else if end > file_size {
-				req_ranges = append(req_ranges, httpRange{0, file_size})
+			} else if end > fileSize {
+				reqRanges = append(reqRanges, httpRange{0, fileSize})
 			} else {
-				req_ranges = append(req_ranges, httpRange{file_size - end, file_size})
+				reqRanges = append(reqRanges, httpRange{fileSize - end, fileSize})
 			}
 		} else if beginend[1] == "" {
 			begin, err := strconv.ParseInt(beginend[0], 10, 64)
 			if err != nil {
 				return nil, errors.New("invalid begin with no end")
 			}
-			if begin < file_size {
-				req_ranges = append(req_ranges, httpRange{begin, file_size})
+			if begin < fileSize {
+				reqRanges = append(reqRanges, httpRange{begin, fileSize})
 			} else {
 				continue
 			}
@@ -198,33 +198,33 @@ func ParseRange(range_header string, file_size int64) ([]httpRange, error) {
 			if end < begin {
 				return nil, errors.New("end before begin")
 			}
-			if begin > file_size {
+			if begin > fileSize {
 				return nil, errors.New("Begin bigger than file")
 			}
-			if end+1 < file_size {
-				req_ranges = append(req_ranges, httpRange{begin, end + 1})
+			if end+1 < fileSize {
+				reqRanges = append(reqRanges, httpRange{begin, end + 1})
 			} else {
-				req_ranges = append(req_ranges, httpRange{begin, file_size})
+				reqRanges = append(reqRanges, httpRange{begin, fileSize})
 			}
 		}
 	}
-	return req_ranges, nil
+	return reqRanges, nil
 }
 
-func ParseDate(date_str string) (time.Time, error) {
-	if date_str == "" {
+func ParseDate(date string) (time.Time, error) {
+	if date == "" {
 		return time.Now(), errors.New("invalid time")
 	}
-	if ius, err := time.Parse(time.RFC1123, date_str); err == nil {
+	if ius, err := time.Parse(time.RFC1123, date); err == nil {
 		return ius, nil
 	}
-	if ius, err := time.Parse(time.RFC1123Z, date_str); err == nil {
+	if ius, err := time.Parse(time.RFC1123Z, date); err == nil {
 		return ius, nil
 	}
-	if ius, err := time.Parse(time.ANSIC, date_str); err == nil {
+	if ius, err := time.Parse(time.ANSIC, date); err == nil {
 		return ius, nil
 	}
-	if timestamp, err := strconv.ParseFloat(date_str, 64); err == nil {
+	if timestamp, err := strconv.ParseFloat(date, 64); err == nil {
 		nans := int64(math.Mod(timestamp*1.0e9, 1e9))
 		return time.Unix(int64(timestamp), nans), nil
 	}

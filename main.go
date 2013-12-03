@@ -18,9 +18,9 @@ import (
 )
 
 type ServerConfig struct {
-	drive_root       string
-	hash_path_prefix string
-	hash_path_suffix string
+	driveRoot       string
+	hashPathPrefix string
+	hashPathSuffix string
 	port             int64
 }
 
@@ -31,14 +31,14 @@ func ErrorResponse(writer http.ResponseWriter, status int) {
 
 func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
 	headers := writer.Header()
-	hash_dir := ObjHashDir(vars, config)
+	hashDir := ObjHashDir(vars, config)
 	// TODO: do proper logic, .meta files...
-	data_file := PrimaryFile(hash_dir)
-	if data_file == "" || strings.HasSuffix(data_file, ".ts") {
+	dataFile := PrimaryFile(hashDir)
+	if dataFile == "" || strings.HasSuffix(dataFile, ".ts") {
 		ErrorResponse(writer, http.StatusNotFound)
 		return
 	}
-	file, err := os.Open(fmt.Sprintf("%s/%s", hash_dir, data_file))
+	file, err := os.Open(fmt.Sprintf("%s/%s", hashDir, dataFile))
 	if err != nil {
 		ErrorResponse(writer, http.StatusNotFound)
 		return
@@ -46,14 +46,14 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	defer file.Close()
 	metadata := ReadMetadata(int(file.Fd()))
 
-	if delete_at, ok := metadata["X-Delete-At"]; ok {
-		if delete_time, err := ParseDate(delete_at.(string)); err == nil && delete_time.Before(time.Now()) {
+	if deleteAt, ok := metadata["X-Delete-At"]; ok {
+		if deleteTime, err := ParseDate(deleteAt.(string)); err == nil && deleteTime.Before(time.Now()) {
 			ErrorResponse(writer, http.StatusNotFound)
 			return
 		}
 	}
 
-	last_modified, err := ParseDate(metadata["X-Timestamp"].(string))
+	lastModified, err := ParseDate(metadata["X-Timestamp"].(string))
 	if err != nil {
 		ErrorResponse(writer, http.StatusInternalServerError)
 		return
@@ -67,11 +67,11 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 		writer.WriteHeader(http.StatusNotModified)
 		return
 	}
-	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && ius.Before(last_modified) {
+	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && ius.Before(lastModified) {
 		writer.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	if ims, err := ParseDate(request.Header.Get("If-Modified-Since")); err == nil && !last_modified.After(ims) {
+	if ims, err := ParseDate(request.Header.Get("If-Modified-Since")); err == nil && !lastModified.After(ims) {
 		writer.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -80,16 +80,16 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
 	headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
-	headers.Set("Last-Modified", last_modified.Format(time.RFC1123))
+	headers.Set("Last-Modified", lastModified.Format(time.RFC1123))
 	for key, value := range metadata {
 		if strings.HasPrefix(key.(string), "X-Object-") {
 			headers.Set(key.(string), value.(string))
 		}
 	}
 
-	if range_header := request.Header.Get("Range"); range_header != "" {
-		file_size, _ := file.Seek(0, os.SEEK_END)
-		ranges, err := ParseRange(range_header, file_size)
+	if rangeHeader := request.Header.Get("Range"); rangeHeader != "" {
+		fileSize, _ := file.Seek(0, os.SEEK_END)
+		ranges, err := ParseRange(rangeHeader, fileSize)
 		if err != nil {
 			ErrorResponse(writer, http.StatusRequestedRangeNotSatisfiable)
 			return
@@ -112,40 +112,40 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 }
 
 func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	out_headers := writer.Header()
-	hash_dir := ObjHashDir(vars, config)
+	outHeaders := writer.Header()
+	hashDir := ObjHashDir(vars, config)
 
-	if os.MkdirAll(hash_dir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, config), 0770) != nil {
+	if os.MkdirAll(hashDir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, config), 0770) != nil {
 		ErrorResponse(writer, 500)
 		return
 	}
-	file_name := fmt.Sprintf("%s/%s.data", hash_dir, request.Header.Get("X-Timestamp"))
-	temp_file, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
+	fileName := fmt.Sprintf("%s/%s.data", hashDir, request.Header.Get("X-Timestamp"))
+	tempFile, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
 	}
-	defer temp_file.Close()
+	defer tempFile.Close()
 	metadata := make(map[string]interface{})
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
 	metadata["X-Timestamp"] = request.Header.Get("X-Timestamp")
 	metadata["Content-Type"] = request.Header.Get("Content-Type")
 	var chunk [65536]byte
-	total_size := uint64(0)
+	totalSize := uint64(0)
 	hash := md5.New()
 	for {
-		read_len, err := request.Body.Read(chunk[0:len(chunk)])
-		if err != nil || read_len <= 0 {
+		readLen, err := request.Body.Read(chunk[0:len(chunk)])
+		if err != nil || readLen <= 0 {
 			break
 		}
-		total_size += uint64(read_len)
-		hash.Write(chunk[0:read_len])
-		temp_file.Write(chunk[0:read_len])
+		totalSize += uint64(readLen)
+		hash.Write(chunk[0:readLen])
+		tempFile.Write(chunk[0:readLen])
 	}
-	metadata["Content-Length"] = strconv.FormatUint(total_size, 10)
+	metadata["Content-Length"] = strconv.FormatUint(totalSize, 10)
 	metadata["ETag"] = fmt.Sprintf("%x", hash.Sum(nil))
-	request_etag := request.Header.Get("ETag")
-	if request_etag != "" && request_etag != metadata["ETag"].(string) {
+	requestEtag := request.Header.Get("ETag")
+	if requestEtag != "" && requestEtag != metadata["ETag"].(string) {
 		ErrorResponse(writer, 422)
 		return
 	}
@@ -154,43 +154,43 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 			metadata[key] = request.Header.Get(key)
 		}
 	}
-	out_headers.Set("ETag", metadata["ETag"].(string))
-	WriteMetadata(int(temp_file.Fd()), metadata)
+	outHeaders.Set("ETag", metadata["ETag"].(string))
+	WriteMetadata(int(tempFile.Fd()), metadata)
 
-	syscall.Fsync(int(temp_file.Fd()))
-	syscall.Rename(temp_file.Name(), file_name)
+	syscall.Fsync(int(tempFile.Fd()))
+	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer("PUT", metadata, request, vars)
-	go CleanupHashDir(hash_dir)
-	go InvalidateHash(hash_dir)
+	go CleanupHashDir(hashDir)
+	go InvalidateHash(hashDir)
 	ErrorResponse(writer, 201)
 }
 
 func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	hash_dir := ObjHashDir(vars, config)
+	hashDir := ObjHashDir(vars, config)
 
-	if os.MkdirAll(hash_dir, 0770) != nil {
+	if os.MkdirAll(hashDir, 0770) != nil {
 		ErrorResponse(writer, 500)
 		return
 	}
-	file_name := fmt.Sprintf("%s/%s.ts", hash_dir, request.Header.Get("X-Timestamp"))
-	data_file := PrimaryFile(hash_dir)
-	temp_file, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
+	fileName := fmt.Sprintf("%s/%s.ts", hashDir, request.Header.Get("X-Timestamp"))
+	dataFile := PrimaryFile(hashDir)
+	tempFile, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
 	}
-	defer temp_file.Close()
+	defer tempFile.Close()
 	metadata := make(map[string]interface{})
 	metadata["X-Timestamp"] = request.Header.Get("X-Timestamp")
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
-	WriteMetadata(int(temp_file.Fd()), metadata)
+	WriteMetadata(int(tempFile.Fd()), metadata)
 
-	syscall.Fsync(int(temp_file.Fd()))
-	syscall.Rename(temp_file.Name(), file_name)
+	syscall.Fsync(int(tempFile.Fd()))
+	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer("DELETE", metadata, request, vars)
-	go CleanupHashDir(hash_dir)
-	go InvalidateHash(hash_dir)
-	if !strings.HasSuffix(data_file, ".data") {
+	go CleanupHashDir(hashDir)
+	go InvalidateHash(hashDir)
+	if !strings.HasSuffix(dataFile, ".data") {
 		ErrorResponse(writer, 404)
 	} else {
 		ErrorResponse(writer, 204)
@@ -231,11 +231,11 @@ func RunServer(conf string) {
 	if err != nil {
 		return
 	}
-	config.hash_path_prefix, ok = swiftconf.Get("swift-hash", "swift_hash_path_prefix")
+	config.hashPathPrefix, ok = swiftconf.Get("swift-hash", "swift_hash_path_prefix")
 	if !ok {
 		return
 	}
-	config.hash_path_suffix, ok = swiftconf.Get("swift-hash", "swift_hash_path_suffix")
+	config.hashPathSuffix, ok = swiftconf.Get("swift-hash", "swift_hash_path_suffix")
 	if !ok {
 		return
 	}
@@ -244,7 +244,7 @@ func RunServer(conf string) {
 	if err != nil {
 		return
 	}
-	config.drive_root, ok = serverconf.Get("DEFAULT", "devices")
+	config.driveRoot, ok = serverconf.Get("DEFAULT", "devices")
 	if !ok {
 		return
 	}
