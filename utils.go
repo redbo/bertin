@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/vaughan0/go-ini"
 )
 
 type httpRange struct {
@@ -252,4 +254,18 @@ func IsMount(dir string) (bool, error) {
 func LooksTrue(check string) bool {
 	check = strings.TrimSpace(strings.ToLower(check))
 	return check == "true" || check == "yes" || check == "1" || check == "on" || check == "t" || check == "y"
+}
+
+type IniFile struct{ ini.File }
+
+func (f IniFile) getDefault(section string, key string, dfl string) string {
+	if value, ok := f.Get(section, key); ok {
+		return value
+	}
+	return dfl
+}
+
+func LoadIniFile(filename string) (IniFile, error) {
+	file := IniFile{make(ini.File)}
+	return file, file.LoadFile(filename)
 }

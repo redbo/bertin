@@ -15,7 +15,6 @@ import (
 
 	"github.com/gorilla/context"
 	"github.com/keep94/weblogs"
-	"github.com/vaughan0/go-ini"
 )
 
 type ServerConfig struct {
@@ -240,13 +239,6 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	}
 }
 
-func getDefault(f ini.File, section string, key string, dfl string) string {
-	if value, ok := f.Get(section, key); ok {
-		return value
-	}
-	return dfl
-}
-
 func RunServer(conf string) {
 	config := ServerConfig{"/srv/node", "", "", 8080, true,
 		map[string]bool{"Content-Disposition": true,
@@ -257,18 +249,18 @@ func RunServer(conf string) {
 		},
 	}
 
-	if swiftconf, err := ini.LoadFile("/etc/swift/swift.conf"); err == nil {
-		config.hashPathPrefix = getDefault(swiftconf, "swift-hash", "swift_hash_path_prefix", "")
-		config.hashPathSuffix = getDefault(swiftconf, "swift-hash", "swift_hash_path_suffix", "")
+	if swiftconf, err := LoadIniFile("/etc/swift/swift.conf"); err == nil {
+		config.hashPathPrefix = swiftconf.getDefault("swift-hash", "swift_hash_path_prefix", "")
+		config.hashPathSuffix = swiftconf.getDefault("swift-hash", "swift_hash_path_suffix", "")
 	}
 
-	serverconf, err := ini.LoadFile(conf)
+	serverconf, err := LoadIniFile(conf)
 	if err != nil {
 		panic(fmt.Sprintf("Unable to load %s", conf))
 	}
-	config.driveRoot = getDefault(serverconf, "DEFAULT", "devices", "/srv/node")
-	config.checkMounts = LooksTrue(getDefault(serverconf, "DEFAULT", "mount_check", "true"))
-	bindPort := getDefault(serverconf, "DEFAULT", "bind_port", "8080")
+	config.driveRoot = serverconf.getDefault("DEFAULT", "devices", "/srv/node")
+	config.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
+	bindPort := serverconf.getDefault("DEFAULT", "bind_port", "8080")
 	if config.port, err = strconv.ParseInt(bindPort, 10, 64); err != nil {
 		panic("Invalid bind port format")
 	}
