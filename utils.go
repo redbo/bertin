@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -72,13 +73,20 @@ func InvalidateHash(hashDir string) {
 	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
 }
 
-func ObjHashDir(vars map[string]string, config ServerConfig) string {
+func ObjHashDir(vars map[string]string, config ServerConfig) (string, error) {
 	h := md5.New()
 	io.WriteString(h, fmt.Sprintf("%s/%s/%s/%s%s", config.hashPathPrefix, vars["account"],
 		vars["container"], vars["obj"], config.hashPathSuffix))
 	hexHash := fmt.Sprintf("%x", h.Sum(nil))
 	suffix := hexHash[29:32]
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s", config.driveRoot, vars["device"], "objects", vars["partition"], suffix, hexHash)
+	devicePath := fmt.Sprintf("%s/%s", config.driveRoot, vars["device"])
+	if config.checkMounts {
+		mounted, err := IsMount(devicePath)
+		if err != nil || mounted != true {
+			return "", errors.New("Not mounted")
+		}
+	}
+	return fmt.Sprintf("%s/%s/%s/%s/%s", devicePath, "objects", vars["partition"], suffix, hexHash), nil
 }
 
 func ObjTempDir(vars map[string]string, config ServerConfig) string {
@@ -229,4 +237,22 @@ func ParseDate(date string) (time.Time, error) {
 		return time.Unix(int64(timestamp), nans), nil
 	}
 	return time.Now(), errors.New("invalid time")
+}
+
+func IsMount(dir string) (bool, error) {
+	dir = filepath.Clean(dir)
+	if fileinfo, err := os.Stat(dir); err == nil {
+		if parentinfo, err := os.Stat(filepath.Dir(dir)); err == nil {
+			return fileinfo.Sys().(*syscall.Stat_t).Dev != parentinfo.Sys().(*syscall.Stat_t).Dev, nil
+		} else {
+			return false, errors.New("Unable to stat parent")
+		}
+	} else {
+		return false, errors.New("Unable to stat directory")
+	}
+}
+
+func LooksTrue(check string) bool {
+	check = strings.TrimSpace(strings.ToLower(check))
+	return check == "true" || check == "yes" || check == "1" || check == "on" || check == "t" || check == "y"
 }

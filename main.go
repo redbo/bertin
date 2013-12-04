@@ -23,6 +23,7 @@ type ServerConfig struct {
 	hashPathPrefix string
 	hashPathSuffix string
 	port           int64
+	checkMounts    bool
 	allowedHeaders map[string]bool
 }
 
@@ -33,7 +34,11 @@ func ErrorResponse(writer http.ResponseWriter, status int) {
 
 func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
 	headers := writer.Header()
-	hashDir := ObjHashDir(vars, config)
+	hashDir, err := ObjHashDir(vars, config)
+	if err != nil {
+		ErrorResponse(writer, 507)
+		return
+	}
 	// TODO: do proper logic, .meta files...
 	dataFile := PrimaryFile(hashDir)
 	if dataFile == "" || strings.HasSuffix(dataFile, ".ts") {
@@ -115,7 +120,11 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 
 func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
 	outHeaders := writer.Header()
-	hashDir := ObjHashDir(vars, config)
+	hashDir, err := ObjHashDir(vars, config)
+	if err != nil {
+		ErrorResponse(writer, 507)
+		return
+	}
 
 	if os.MkdirAll(hashDir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, config), 0770) != nil {
 		ErrorResponse(writer, 500)
@@ -170,7 +179,11 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 }
 
 func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	hashDir := ObjHashDir(vars, config)
+	hashDir, err := ObjHashDir(vars, config)
+	if err != nil {
+		ErrorResponse(writer, 507)
+		return
+	}
 
 	if os.MkdirAll(hashDir, 0770) != nil {
 		ErrorResponse(writer, 500)
@@ -229,7 +242,7 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 
 func RunServer(conf string) {
 	var ok bool
-	config := ServerConfig{"", "", "", 0,
+	config := ServerConfig{"", "", "", 0, true,
 		map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
@@ -272,6 +285,9 @@ func RunServer(conf string) {
 		for i := range headers {
 			config.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
 		}
+	}
+	if mount_check, ok := serverconf.Get("DEFAULT", "mount_check"); ok {
+		config.checkMounts = LooksTrue(mount_check)
 	}
 
 	handler := context.ClearHandler(weblogs.Handler(config))
