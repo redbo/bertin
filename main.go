@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/textproto"
 	"os"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ type ServerConfig struct {
 	hashPathPrefix string
 	hashPathSuffix string
 	port           int64
+	allowedHeaders map[string]bool
 }
 
 func ErrorResponse(writer http.ResponseWriter, status int) {
@@ -130,6 +132,13 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
 	metadata["X-Timestamp"] = request.Header.Get("X-Timestamp")
 	metadata["Content-Type"] = request.Header.Get("Content-Type")
+	for key := range request.Header {
+		if strings.HasPrefix(key, "X-Object-Meta-") {
+			metadata[key] = request.Header.Get(key)
+		} else if _, ok := config.allowedHeaders[key]; ok {
+			metadata[key] = request.Header.Get(key)
+		}
+	}
 	var chunk [65536]byte
 	totalSize := uint64(0)
 	hash := md5.New()
@@ -148,11 +157,6 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	if requestEtag != "" && requestEtag != metadata["ETag"].(string) {
 		ErrorResponse(writer, 422)
 		return
-	}
-	for key := range request.Header {
-		if strings.HasPrefix(key, "X-Object-") {
-			metadata[key] = request.Header.Get(key)
-		}
 	}
 	outHeaders.Set("ETag", metadata["ETag"].(string))
 	WriteMetadata(int(tempFile.Fd()), metadata)
@@ -225,7 +229,14 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 
 func RunServer(conf string) {
 	var ok bool
-	config := ServerConfig{"", "", "", 0}
+	config := ServerConfig{"", "", "", 0,
+		map[string]bool{"Content-Disposition": true,
+			"Content-Encoding":      true,
+			"X-Delete-At":           true,
+			"X-Object-Manifest":     true,
+			"X-Static-Large-Object": true,
+		},
+	}
 
 	swiftconf, err := ini.LoadFile("/etc/swift/swift.conf")
 	if err != nil {
@@ -255,6 +266,12 @@ func RunServer(conf string) {
 	config.port, err = strconv.ParseInt(portstr, 10, 64)
 	if err != nil {
 		return
+	}
+	if allowed_headers, ok := serverconf.Get("DEFAULT", "allowed_headers"); ok {
+		headers := strings.Split(allowed_headers, ",")
+		for i := range headers {
+			config.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
+		}
 	}
 
 	handler := context.ClearHandler(weblogs.Handler(config))
