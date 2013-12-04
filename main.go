@@ -240,9 +240,15 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 	}
 }
 
+func getDefault(f ini.File, section string, key string, dfl string) string {
+	if value, ok := f.Get(section, key); ok {
+		return value
+	}
+	return dfl
+}
+
 func RunServer(conf string) {
-	var ok bool
-	config := ServerConfig{"", "", "", 0, true,
+	config := ServerConfig{"/srv/node", "", "", 8080, true,
 		map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
@@ -251,43 +257,26 @@ func RunServer(conf string) {
 		},
 	}
 
-	swiftconf, err := ini.LoadFile("/etc/swift/swift.conf")
-	if err != nil {
-		return
-	}
-	config.hashPathPrefix, ok = swiftconf.Get("swift-hash", "swift_hash_path_prefix")
-	if !ok {
-		return
-	}
-	config.hashPathSuffix, ok = swiftconf.Get("swift-hash", "swift_hash_path_suffix")
-	if !ok {
-		return
+	if swiftconf, err := ini.LoadFile("/etc/swift/swift.conf"); err == nil {
+		config.hashPathPrefix = getDefault(swiftconf, "swift-hash", "swift_hash_path_prefix", "")
+		config.hashPathSuffix = getDefault(swiftconf, "swift-hash", "swift_hash_path_suffix", "")
 	}
 
 	serverconf, err := ini.LoadFile(conf)
 	if err != nil {
-		return
+		panic(fmt.Sprintf("Unable to load %s", conf))
 	}
-	config.driveRoot, ok = serverconf.Get("DEFAULT", "devices")
-	if !ok {
-		return
+	config.driveRoot = getDefault(serverconf, "DEFAULT", "devices", "/srv/node")
+	config.checkMounts = LooksTrue(getDefault(serverconf, "DEFAULT", "mount_check", "true"))
+	bindPort := getDefault(serverconf, "DEFAULT", "bind_port", "8080")
+	if config.port, err = strconv.ParseInt(bindPort, 10, 64); err != nil {
+		panic("Invalid bind port format")
 	}
-	portstr, ok := serverconf.Get("DEFAULT", "bind_port")
-	if !ok {
-		return
-	}
-	config.port, err = strconv.ParseInt(portstr, 10, 64)
-	if err != nil {
-		return
-	}
-	if allowed_headers, ok := serverconf.Get("DEFAULT", "allowed_headers"); ok {
-		headers := strings.Split(allowed_headers, ",")
+	if allowedHeaders, ok := serverconf.Get("DEFAULT", "allowed_headers"); ok {
+		headers := strings.Split(allowedHeaders, ",")
 		for i := range headers {
 			config.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
 		}
-	}
-	if mount_check, ok := serverconf.Get("DEFAULT", "mount_check"); ok {
-		config.checkMounts = LooksTrue(mount_check)
 	}
 
 	handler := context.ClearHandler(weblogs.Handler(config))

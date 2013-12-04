@@ -220,9 +220,6 @@ func ParseRange(rangeHeader string, fileSize int64) ([]httpRange, error) {
 }
 
 func ParseDate(date string) (time.Time, error) {
-	if date == "" {
-		return time.Now(), errors.New("invalid time")
-	}
 	if ius, err := time.Parse(time.RFC1123, date); err == nil {
 		return ius, nil
 	}
