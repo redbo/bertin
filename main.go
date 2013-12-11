@@ -52,7 +52,7 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	defer file.Close()
 	metadata := ReadMetadata(int(file.Fd()))
 
-	if deleteAt, ok := metadata["X-Delete-At"]; ok {
+	if deleteAt, ok := metadata["X-Delete-At"].(string); ok {
 		if deleteTime, err := ParseDate(deleteAt.(string)); err == nil && deleteTime.Before(time.Now()) {
 			ErrorResponse(writer, http.StatusNotFound)
 			return
