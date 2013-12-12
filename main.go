@@ -53,7 +53,7 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	metadata := ReadMetadata(int(file.Fd()))
 
 	if deleteAt, ok := metadata["X-Delete-At"].(string); ok {
-		if deleteTime, err := ParseDate(deleteAt.(string)); err == nil && deleteTime.Before(time.Now()) {
+		if deleteTime, err := ParseDate(deleteAt); err == nil && deleteTime.Before(time.Now()) {
 			ErrorResponse(writer, http.StatusNotFound)
 			return
 		}
@@ -143,7 +143,7 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	for key := range request.Header {
 		if strings.HasPrefix(key, "X-Object-Meta-") {
 			metadata[key] = request.Header.Get(key)
-		} else if _, ok := config.allowedHeaders[key]; ok {
+		} else if allowed, ok := config.allowedHeaders[key]; ok && allowed {
 			metadata[key] = request.Header.Get(key)
 		}
 	}
@@ -171,7 +171,10 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 
 	syscall.Fsync(int(tempFile.Fd()))
 	syscall.Rename(tempFile.Name(), fileName)
-	UpdateContainer("PUT", metadata, request, vars)
+	UpdateContainer(metadata, request, vars)
+	if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
+		go UpdateDeleteAt(request, vars, metadata)
+	}
 	go CleanupHashDir(hashDir)
 	go InvalidateHash(hashDir)
 	ErrorResponse(writer, 201)
@@ -203,7 +206,10 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 
 	syscall.Fsync(int(tempFile.Fd()))
 	syscall.Rename(tempFile.Name(), fileName)
-	UpdateContainer("DELETE", metadata, request, vars)
+	UpdateContainer(metadata, request, vars)
+	if _, ok := metadata["X-Delete-At"]; ok {
+		go UpdateDeleteAt(request, vars, metadata)
+	}
 	go CleanupHashDir(hashDir)
 	go InvalidateHash(hashDir)
 	if !strings.HasSuffix(dataFile, ".data") {

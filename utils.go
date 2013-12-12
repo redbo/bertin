@@ -19,6 +19,9 @@ import (
 	"github.com/vaughan0/go-ini"
 )
 
+const deleteAtDivisor = 3600
+const deleteAtAccount = ".expiring_objects"
+
 type httpRange struct {
 	start, end int64
 }
@@ -129,7 +132,7 @@ func Urlencode(str string) string {
 	return strings.Replace(url.QueryEscape(str), "+", "%20", -1)
 }
 
-func UpdateContainer(operation string, metadata map[string]interface{}, request *http.Request, vars map[string]string) {
+func UpdateContainer(metadata map[string]interface{}, request *http.Request, vars map[string]string) {
 	client := &http.Client{}
 	contpartition := request.Header.Get("X-Container-Partition")
 	conthosts := strings.Split(request.Header.Get("X-Container-Host"), ",")
@@ -142,13 +145,13 @@ func UpdateContainer(operation string, metadata map[string]interface{}, request 
 		device := contdevices[index]
 		url := fmt.Sprintf("http://%s/%s/%s/%s/%s/%s", host, device, contpartition,
 			Urlencode(vars["account"]), Urlencode(vars["container"]), Urlencode(vars["obj"]))
-		req, err := http.NewRequest(operation, url, nil)
+		req, err := http.NewRequest(request.Method, url, nil)
 		if err != nil {
 			continue
 		}
 		req.Header.Add("X-Trans-Id", request.Header.Get("X-Trans-Id"))
 		req.Header.Add("X-Timestamp", metadata["X-Timestamp"].(string))
-		if operation != "DELETE" {
+		if request.Method != "DELETE" {
 			req.Header.Add("X-Content-Type", metadata["Content-Type"].(string))
 			req.Header.Add("X-Size", metadata["Content-Length"].(string))
 			req.Header.Add("X-Etag", metadata["ETag"].(string))
@@ -158,6 +161,35 @@ func UpdateContainer(operation string, metadata map[string]interface{}, request 
 			continue
 			// TODO: async update files
 		}
+	}
+}
+
+// TODO: UNTESTED
+func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[string]interface{}) {
+	if _, ok := metadata["X-Delete-At"]; !ok {
+		return
+	}
+	deleteAt, err := ParseDate(metadata["X-Delete-At"].(string))
+	if err != nil {
+		return
+	}
+	client := &http.Client{}
+	partition := request.Header.Get("X-Delete-At-Partition")
+	host := request.Header.Get("X-Delete-At-Host")
+	device := request.Header.Get("X-Delete-At-Device")
+
+	deleteAtContainer := (deleteAt.Unix() / deleteAtDivisor) * deleteAtDivisor
+	url := fmt.Sprintf("http://%s/%s/%s/%s/%s/%d-%s/%s/%s", host, device, partition, deleteAtAccount, deleteAtContainer,
+		deleteAt.Unix(), Urlencode(vars["account"]), Urlencode(vars["container"]), Urlencode(vars["obj"]))
+	req, err := http.NewRequest(request.Method, url, nil)
+	req.Header.Add("X-Trans-Id", request.Header.Get("X-Trans-Id"))
+	req.Header.Add("X-Timestamp", request.Header.Get("X-Timestamp"))
+	req.Header.Add("X-Size", "0")
+	req.Header.Add("X-Content-Type", "text/plain")
+	req.Header.Add("X-Etag", "d41d8cd98f00b204e9800998ecf8427e")
+	resp, err := client.Do(req)
+	if err != nil || (resp.StatusCode/100) != 2 {
+		// TODO: async update files
 	}
 }
 
