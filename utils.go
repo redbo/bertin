@@ -179,7 +179,7 @@ func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[
 	device := request.Header.Get("X-Delete-At-Device")
 
 	deleteAtContainer := (deleteAt.Unix() / deleteAtDivisor) * deleteAtDivisor
-	url := fmt.Sprintf("http://%s/%s/%s/%s/%s/%d-%s/%s/%s", host, device, partition, deleteAtAccount, deleteAtContainer,
+	url := fmt.Sprintf("http://%s/%s/%s/%s/%d/%d-%s/%s/%s", host, device, partition, deleteAtAccount, deleteAtContainer,
 		deleteAt.Unix(), Urlencode(vars["account"]), Urlencode(vars["container"]), Urlencode(vars["obj"]))
 	req, err := http.NewRequest(request.Method, url, nil)
 	req.Header.Add("X-Trans-Id", request.Header.Get("X-Trans-Id"))
