@@ -92,6 +92,7 @@ func HashCleanupListdir(hashDir string) ([]string, error) {
 		} else {
 			returnList = append(returnList, filename)
 			if strings.HasSuffix(filename, ".ts") || strings.HasSuffix(filename, ".data") {
+				// TODO: check .ts time for expiration
 				deleteRest = true
 			}
 		}
@@ -99,8 +100,11 @@ func HashCleanupListdir(hashDir string) ([]string, error) {
 	return returnList, nil
 }
 
+func CleanupHashDir(directory string) {
+	_, _ = HashCleanupListdir(directory)
+}
+
 func RecalculateSuffixHash(suffixDir string) (string, error) {
-	// TODO: handle errors?
 	h := md5.New()
 	hashList, err := ioutil.ReadDir(suffixDir)
 	if err != nil {
@@ -108,6 +112,7 @@ func RecalculateSuffixHash(suffixDir string) (string, error) {
 	}
 	for index := len(hashList) - 1; index >= 0; index-- {
 		fileList, err := HashCleanupListdir(fmt.Sprintf("%s/%s", suffixDir, hashList[index]))
+		// TODO: handle errors?
 		if err != nil {
 			return "", err
 		}
@@ -115,8 +120,7 @@ func RecalculateSuffixHash(suffixDir string) (string, error) {
 			io.WriteString(h, fileName)
 		}
 	}
-	hexHash := fmt.Sprintf("%x", h.Sum(nil))
-	return hexHash, nil
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func GetHashes(config ServerConfig, device string, partition string, recalculate []string) (map[string]interface{}, error) {
@@ -175,10 +179,6 @@ func PrimaryFile(directory string) string {
 		}
 	}
 	return ""
-}
-
-func CleanupHashDir(directory string) {
-	_, _ = HashCleanupListdir(directory)
 }
 
 func Urlencode(str string) string {
