@@ -19,12 +19,9 @@ import (
 )
 
 type ServerConfig struct {
-	ip             string
-	user           string
 	driveRoot      string
 	hashPathPrefix string
 	hashPathSuffix string
-	port           int64
 	checkMounts    bool
 	disableFsync   bool
 	allowedHeaders map[string]bool
@@ -208,7 +205,9 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
 	WriteMetadata(int(tempFile.Fd()), metadata)
 
-	syscall.Fsync(int(tempFile.Fd()))
+	if !config.disableFsync {
+		syscall.Fsync(int(tempFile.Fd()))
+	}
 	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
 	if _, ok := metadata["X-Delete-At"]; ok {
@@ -274,7 +273,7 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 
 func RunServer(conf string) {
 	config := ServerConfig{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
-		checkMounts: true, disableFsync: false, user: "swift",
+		checkMounts: true, disableFsync: false,
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
@@ -296,8 +295,8 @@ func RunServer(conf string) {
 	config.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
 	config.disableFsync = LooksTrue(serverconf.getDefault("DEFAULT", "disable_fsync", "false"))
 	bindIP := serverconf.getDefault("DEFAULT", "bind_ip", "0.0.0.0")
-	bindPort := serverconf.getDefault("DEFAULT", "bind_port", "8080")
-	if config.port, err = strconv.ParseInt(bindPort, 10, 64); err != nil {
+	bindPort, err := strconv.ParseInt(serverconf.getDefault("DEFAULT", "bind_port", "8080"), 10, 64)
+	if err != nil {
 		panic("Invalid bind port format")
 	}
 	if allowedHeaders, ok := serverconf.Get("DEFAULT", "allowed_headers"); ok {
@@ -308,11 +307,9 @@ func RunServer(conf string) {
 	}
 
 	handler := context.ClearHandler(weblogs.Handler(config))
-	//http.ListenAndServe(fmt.Sprintf("%s:%d", bindIP, bindPort), handler)
-	addr := fmt.Sprintf("%s:%d", bindIP, bindPort)
-	sock, err := net.Listen("tcp", addr)
+	sock, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindIP, bindPort))
 	if err != nil {
-		panic("Unable to bind port.")
+		panic(fmt.Sprintf("Unable to bind %s:%d", bindIP, bindPort))
 	}
 	DropPrivileges(serverconf.getDefault("DEFAULT", "user", "swift"))
 	server := &http.Server{Handler: handler}
