@@ -219,17 +219,20 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 	}
 }
 
-/*
 func ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-{
-      v := PickleLoads(string(pickledMetadata[0:offset]))
+	hashes, err := GetHashes(config, vars["device"], vars["partition"], strings.Split(vars["account"], "-"))
+	if err != nil {
+		ErrorResponse(writer, 500)
+		return
+	}
+	writer.WriteHeader(http.StatusOK)
+	writer.Write([]byte(PickleDumps(hashes)))
 }
-*/
 
 func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if request.URL.Path == "/healthcheck" {
 		writer.Header().Set("Content-Length", "2")
-		writer.WriteHeader(200)
+		writer.WriteHeader(http.StatusOK)
 		writer.Write([]byte("OK"))
 		return
 	}
@@ -249,10 +252,8 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		ObjPutHandler(writer, request, vars, m)
 	case "DELETE":
 		ObjDeleteHandler(writer, request, vars, m)
-/*
 	case "REPLICATE":
 		ObjReplicateHandler(writer, request, vars, m)
-*/
 	}
 }
 

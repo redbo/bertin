@@ -74,8 +74,73 @@ func InvalidateHash(hashDir string) {
 	}
 	v := PickleLoads(string(data))
 	v.(map[string]interface{})[suffDir] = nil
-	// TODO: tmp file, fsync, rename
+	// TODO: atomic
 	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+}
+
+func HashCleanupListdir(hashDir string) ([]string, error) {
+	fileList, err := ioutil.ReadDir(hashDir)
+	if err != nil {
+		return nil, nil
+	}
+	deleteRest := false
+	returnList := []string{}
+	for index := len(fileList) - 1; index >= 0; index-- {
+		filename := fileList[index].Name()
+		if deleteRest {
+			os.RemoveAll(fmt.Sprintf("%s/%s", hashDir, filename))
+		} else {
+			returnList = append(returnList, filename)
+			if strings.HasSuffix(filename, ".ts") || strings.HasSuffix(filename, ".data") {
+				deleteRest = true
+			}
+		}
+	}
+	return returnList, nil
+}
+
+func RecalculateSuffixHash(suffixDir string) (string, error) {
+	// TODO: handle errors?
+	h := md5.New()
+	hashList, err := ioutil.ReadDir(suffixDir)
+	if err != nil {
+		return "", err
+	}
+	for index := len(hashList) - 1; index >= 0; index-- {
+		fileList, err := HashCleanupListdir(fmt.Sprintf("%s/%s", suffixDir, hashList[index]))
+		if err != nil {
+			return "", err
+		}
+		for _, fileName := range fileList {
+			io.WriteString(h, fileName)
+		}
+	}
+	hexHash := fmt.Sprintf("%x", h.Sum(nil))
+	return hexHash, nil
+}
+
+func GetHashes(config ServerConfig, device string, partition string, recalculate []string) (map[string]interface{}, error) {
+	pklFile := fmt.Sprintf("%s/%s/%s/hashes.pkl", config.driveRoot, device, partition)
+	data, err := ioutil.ReadFile(pklFile)
+	if err != nil {
+		return nil, err
+	}
+	v := PickleLoads(string(data)).(map[string]interface{})
+	for _, suffix := range recalculate {
+		v[suffix] = nil
+	}
+	// TODO: locking, check for updates and recurse, etc.
+	for suffix, hash := range v {
+		if hash == nil || hash == "" {
+			v[suffix], err = RecalculateSuffixHash(fmt.Sprintf("%s/%s/%s/%s", config.driveRoot, device, partition, suffix))
+			if err != nil {
+				v[suffix] = nil
+			}
+		}
+	}
+	// TODO: atomic
+	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+	return v, nil
 }
 
 func ObjHashDir(vars map[string]string, config ServerConfig) (string, error) {
@@ -113,19 +178,7 @@ func PrimaryFile(directory string) string {
 }
 
 func CleanupHashDir(directory string) {
-	fileList, err := ioutil.ReadDir(directory)
-	if err != nil {
-		return
-	}
-	deleteRest := false
-	for index := len(fileList) - 1; index >= 0; index-- {
-		filename := fileList[index].Name()
-		if deleteRest {
-			os.RemoveAll(fmt.Sprintf("%s/%s", directory, filename))
-		} else if strings.HasSuffix(filename, ".ts") || strings.HasSuffix(filename, ".data") {
-			deleteRest = true
-		}
-	}
+	_, _ = HashCleanupListdir(directory)
 }
 
 func Urlencode(str string) string {
