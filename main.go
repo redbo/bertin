@@ -220,7 +220,7 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 }
 
 func ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	hashes, err := GetHashes(config, vars["device"], vars["partition"], strings.Split(vars["account"], "-"))
+	hashes, err := GetHashes(config, vars["device"], vars["partition"], strings.Split(vars["suffixes"], "-"))
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
@@ -237,11 +237,22 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	parts := strings.SplitN(request.URL.Path, "/", 6)
-	vars := map[string]string{"device": parts[1],
-		"partition": parts[2],
-		"account":   parts[3],
-		"container": parts[4],
-		"obj":       parts[5],
+	var vars map[string]string
+	if len(parts) > 1 {
+		vars["device"] = parts[1]
+		if len(parts) > 2 {
+			vars["partition"] = parts[2]
+			if len(parts) > 3 {
+				vars["account"] = parts[3]
+				vars["suffixes"] = parts[3]
+				if len(parts) > 4 {
+					vars["container"] = parts[4]
+					if len(parts) > 5 {
+						vars["obj"] = parts[5]
+					}
+				}
+			}
+		}
 	}
 	switch request.Method {
 	case "GET":
