@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/textproto"
 	"os"
@@ -18,11 +19,14 @@ import (
 )
 
 type ServerConfig struct {
+	ip             string
+	user           string
 	driveRoot      string
 	hashPathPrefix string
 	hashPathSuffix string
 	port           int64
 	checkMounts    bool
+	disableFsync   bool
 	allowedHeaders map[string]bool
 }
 
@@ -269,8 +273,9 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 }
 
 func RunServer(conf string) {
-	config := ServerConfig{"/srv/node", "", "", 8080, true,
-		map[string]bool{"Content-Disposition": true,
+	config := ServerConfig{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
+		checkMounts: true, disableFsync: false, user: "swift",
+		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
 			"X-Object-Manifest":     true,
@@ -289,6 +294,8 @@ func RunServer(conf string) {
 	}
 	config.driveRoot = serverconf.getDefault("DEFAULT", "devices", "/srv/node")
 	config.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
+	config.disableFsync = LooksTrue(serverconf.getDefault("DEFAULT", "disable_fsync", "false"))
+	bindIP := serverconf.getDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort := serverconf.getDefault("DEFAULT", "bind_port", "8080")
 	if config.port, err = strconv.ParseInt(bindPort, 10, 64); err != nil {
 		panic("Invalid bind port format")
@@ -301,7 +308,15 @@ func RunServer(conf string) {
 	}
 
 	handler := context.ClearHandler(weblogs.Handler(config))
-	http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", config.port), handler)
+	//http.ListenAndServe(fmt.Sprintf("%s:%d", bindIP, bindPort), handler)
+	addr := fmt.Sprintf("%s:%d", bindIP, bindPort)
+	sock, err := net.Listen("tcp", addr)
+	if err != nil {
+		panic("Unable to bind port.")
+	}
+	DropPrivileges(serverconf.getDefault("DEFAULT", "user", "swift"))
+	server := &http.Server{Handler: handler}
+	server.Serve(sock)
 }
 
 func main() {
