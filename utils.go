@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/syslog"
 	"math"
 	"net/http"
 	"net/url"
@@ -123,8 +124,8 @@ func RecalculateSuffixHash(suffixDir string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func GetHashes(config ServerConfig, device string, partition string, recalculate []string) (map[string]interface{}, error) {
-	pklFile := fmt.Sprintf("%s/%s/%s/hashes.pkl", config.driveRoot, device, partition)
+func GetHashes(server ObjectServer, device string, partition string, recalculate []string) (map[string]interface{}, error) {
+	pklFile := fmt.Sprintf("%s/%s/%s/hashes.pkl", server.driveRoot, device, partition)
 	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
 		return nil, err
@@ -136,7 +137,7 @@ func GetHashes(config ServerConfig, device string, partition string, recalculate
 	// TODO: locking, check for updates and recurse, etc.
 	for suffix, hash := range v {
 		if hash == nil || hash == "" {
-			v[suffix], err = RecalculateSuffixHash(fmt.Sprintf("%s/%s/%s/%s", config.driveRoot, device, partition, suffix))
+			v[suffix], err = RecalculateSuffixHash(fmt.Sprintf("%s/%s/%s/%s", server.driveRoot, device, partition, suffix))
 			if err != nil {
 				v[suffix] = nil
 			}
@@ -147,14 +148,14 @@ func GetHashes(config ServerConfig, device string, partition string, recalculate
 	return v, nil
 }
 
-func ObjHashDir(vars map[string]string, config ServerConfig) (string, error) {
+func ObjHashDir(vars map[string]string, server ObjectServer) (string, error) {
 	h := md5.New()
-	io.WriteString(h, fmt.Sprintf("%s/%s/%s/%s%s", config.hashPathPrefix, vars["account"],
-		vars["container"], vars["obj"], config.hashPathSuffix))
+	io.WriteString(h, fmt.Sprintf("%s/%s/%s/%s%s", server.hashPathPrefix, vars["account"],
+		vars["container"], vars["obj"], server.hashPathSuffix))
 	hexHash := fmt.Sprintf("%x", h.Sum(nil))
 	suffix := hexHash[29:32]
-	devicePath := fmt.Sprintf("%s/%s", config.driveRoot, vars["device"])
-	if config.checkMounts {
+	devicePath := fmt.Sprintf("%s/%s", server.driveRoot, vars["device"])
+	if server.checkMounts {
 		mounted, err := IsMount(devicePath)
 		if err != nil || mounted != true {
 			return "", errors.New("Not mounted")
@@ -163,8 +164,8 @@ func ObjHashDir(vars map[string]string, config ServerConfig) (string, error) {
 	return fmt.Sprintf("%s/%s/%s/%s/%s", devicePath, "objects", vars["partition"], suffix, hexHash), nil
 }
 
-func ObjTempDir(vars map[string]string, config ServerConfig) string {
-	return fmt.Sprintf("%s/%s/%s", config.driveRoot, vars["device"], "tmp")
+func ObjTempDir(vars map[string]string, server ObjectServer) string {
+	return fmt.Sprintf("%s/%s/%s", server.driveRoot, vars["device"], "tmp")
 }
 
 func PrimaryFile(directory string) string {
@@ -353,4 +354,22 @@ func (f IniFile) getDefault(section string, key string, dfl string) string {
 func LoadIniFile(filename string) (IniFile, error) {
 	file := IniFile{make(ini.File)}
 	return file, file.LoadFile(filename)
+}
+
+func SetupLogger(facility string, prefix string) *syslog.Writer {
+	facility_mapping := map[string]syslog.Priority{"LOG_USER": syslog.LOG_USER,
+		"LOG_MAIL": syslog.LOG_MAIL, "LOG_DAEMON": syslog.LOG_DAEMON,
+		"LOG_AUTH": syslog.LOG_AUTH, "LOG_SYSLOG": syslog.LOG_SYSLOG,
+		"LOG_LPR": syslog.LOG_LPR, "LOG_NEWS": syslog.LOG_NEWS,
+		"LOG_UUCP": syslog.LOG_UUCP, "LOG_CRON": syslog.LOG_CRON,
+		"LOG_AUTHPRIV": syslog.LOG_AUTHPRIV, "LOG_FTP": syslog.LOG_FTP,
+		"LOG_LOCAL0": syslog.LOG_LOCAL0, "LOG_LOCAL1": syslog.LOG_LOCAL1,
+		"LOG_LOCAL2": syslog.LOG_LOCAL2, "LOG_LOCAL3": syslog.LOG_LOCAL3,
+		"LOG_LOCAL4": syslog.LOG_LOCAL4, "LOG_LOCAL5": syslog.LOG_LOCAL5,
+		"LOG_LOCAL6": syslog.LOG_LOCAL6, "LOG_LOCAL7": syslog.LOG_LOCAL7}
+	logger, err := syslog.Dial("udp", "127.0.0.1:514", facility_mapping[facility], prefix)
+	if err != nil || logger == nil {
+		panic(fmt.Sprintf("Unable to dial logger: %s", err))
+	}
+	return logger
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/syslog"
 	"net"
 	"net/http"
 	"net/textproto"
@@ -13,28 +14,25 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/gorilla/context"
-	"github.com/keep94/weblogs"
 )
 
-type ServerConfig struct {
+type ObjectServer struct {
 	driveRoot      string
 	hashPathPrefix string
 	hashPathSuffix string
 	checkMounts    bool
 	disableFsync   bool
 	allowedHeaders map[string]bool
+	logger         *syslog.Writer
 }
 
 func ErrorResponse(writer http.ResponseWriter, status int) {
-	writer.Header().Set("Content-Length", "0")
-	writer.WriteHeader(status)
+  	http.Error(writer, http.StatusText(status), status)
 }
 
-func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
+func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
 	headers := writer.Header()
-	hashDir, err := ObjHashDir(vars, config)
+	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
 		ErrorResponse(writer, 507)
 		return
@@ -118,20 +116,20 @@ func ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	}
 }
 
-func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
+func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
 	outHeaders := writer.Header()
-	hashDir, err := ObjHashDir(vars, config)
+	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
 		ErrorResponse(writer, 507)
 		return
 	}
 
-	if os.MkdirAll(hashDir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, config), 0770) != nil {
+	if os.MkdirAll(hashDir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, server), 0770) != nil {
 		ErrorResponse(writer, 500)
 		return
 	}
 	fileName := fmt.Sprintf("%s/%s.data", hashDir, request.Header.Get("X-Timestamp"))
-	tempFile, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
+	tempFile, err := ioutil.TempFile(ObjTempDir(vars, server), "PUT")
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
@@ -144,7 +142,7 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	for key := range request.Header {
 		if strings.HasPrefix(key, "X-Object-Meta-") {
 			metadata[key] = request.Header.Get(key)
-		} else if allowed, ok := config.allowedHeaders[key]; ok && allowed {
+		} else if allowed, ok := server.allowedHeaders[key]; ok && allowed {
 			metadata[key] = request.Header.Get(key)
 		}
 	}
@@ -170,7 +168,9 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	outHeaders.Set("ETag", metadata["ETag"].(string))
 	WriteMetadata(int(tempFile.Fd()), metadata)
 
-	syscall.Fsync(int(tempFile.Fd()))
+	if !server.disableFsync {
+		syscall.Fsync(int(tempFile.Fd()))
+	}
 	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
 	if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
@@ -181,8 +181,8 @@ func ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[s
 	ErrorResponse(writer, 201)
 }
 
-func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	hashDir, err := ObjHashDir(vars, config)
+func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
 		ErrorResponse(writer, 507)
 		return
@@ -194,7 +194,7 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 	}
 	fileName := fmt.Sprintf("%s/%s.ts", hashDir, request.Header.Get("X-Timestamp"))
 	dataFile := PrimaryFile(hashDir)
-	tempFile, err := ioutil.TempFile(ObjTempDir(vars, config), "PUT")
+	tempFile, err := ioutil.TempFile(ObjTempDir(vars, server), "PUT")
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
@@ -205,7 +205,7 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
 	WriteMetadata(int(tempFile.Fd()), metadata)
 
-	if !config.disableFsync {
+	if !server.disableFsync {
 		syscall.Fsync(int(tempFile.Fd()))
 	}
 	syscall.Rename(tempFile.Name(), fileName)
@@ -222,8 +222,8 @@ func ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars ma
 	}
 }
 
-func ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string, config ServerConfig) {
-	hashes, err := GetHashes(config, vars["device"], vars["partition"], strings.Split(vars["suffixes"], "-"))
+func (server ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+	hashes, err := GetHashes(server, vars["device"], vars["partition"], strings.Split(vars["suffixes"], "-"))
 	if err != nil {
 		ErrorResponse(writer, 500)
 		return
@@ -232,7 +232,25 @@ func ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars
 	writer.Write([]byte(PickleDumps(hashes)))
 }
 
-func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+func GetDefault(h http.Header, key string, dfl string) string {
+	val := h.Get(key)
+	if val == "" {
+		return dfl
+	}
+	return val
+}
+
+type SaveStatusWriter struct {
+	http.ResponseWriter
+	Status int
+}
+
+func (w *SaveStatusWriter) WriteHeader(status int) {
+  w.ResponseWriter.WriteHeader(status)
+  w.Status = status
+}
+
+func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if request.URL.Path == "/healthcheck" {
 		writer.Header().Set("Content-Length", "2")
 		writer.WriteHeader(http.StatusOK)
@@ -240,7 +258,7 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 	parts := strings.SplitN(request.URL.Path, "/", 6)
-	var vars map[string]string
+	vars := make(map[string]string)
 	if len(parts) > 1 {
 		vars["device"] = parts[1]
 		if len(parts) > 2 {
@@ -257,22 +275,37 @@ func (m ServerConfig) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 			}
 		}
 	}
+	start := time.Now()
+	newWriter := &SaveStatusWriter{writer, 200}
 	switch request.Method {
 	case "GET":
-		ObjGetHandler(writer, request, vars, m)
+		server.ObjGetHandler(newWriter, request, vars)
 	case "HEAD":
-		ObjGetHandler(writer, request, vars, m)
+		server.ObjGetHandler(newWriter, request, vars)
 	case "PUT":
-		ObjPutHandler(writer, request, vars, m)
+		server.ObjPutHandler(newWriter, request, vars)
 	case "DELETE":
-		ObjDeleteHandler(writer, request, vars, m)
+		server.ObjDeleteHandler(newWriter, request, vars)
 	case "REPLICATE":
-		ObjReplicateHandler(writer, request, vars, m)
+		server.ObjReplicateHandler(newWriter, request, vars)
 	}
+
+	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
+		request.RemoteAddr,
+		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
+		request.Method,
+		request.URL.Path,
+		newWriter.Status,
+		GetDefault(writer.Header(), "Content-Length", "-"),
+		GetDefault(request.Header, "Referer", "-"),
+		GetDefault(request.Header, "X-Trans-Id", "-"),
+		GetDefault(request.Header, "User-Agent", "-"),
+		time.Since(start).Seconds(),
+		"-")) // TODO: "additional info"
 }
 
 func RunServer(conf string) {
-	config := ServerConfig{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
+	server := ObjectServer{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
 		checkMounts: true, disableFsync: false,
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
@@ -283,17 +316,17 @@ func RunServer(conf string) {
 	}
 
 	if swiftconf, err := LoadIniFile("/etc/swift/swift.conf"); err == nil {
-		config.hashPathPrefix = swiftconf.getDefault("swift-hash", "swift_hash_path_prefix", "")
-		config.hashPathSuffix = swiftconf.getDefault("swift-hash", "swift_hash_path_suffix", "")
+		server.hashPathPrefix = swiftconf.getDefault("swift-hash", "swift_hash_path_prefix", "")
+		server.hashPathSuffix = swiftconf.getDefault("swift-hash", "swift_hash_path_suffix", "")
 	}
 
 	serverconf, err := LoadIniFile(conf)
 	if err != nil {
 		panic(fmt.Sprintf("Unable to load %s", conf))
 	}
-	config.driveRoot = serverconf.getDefault("DEFAULT", "devices", "/srv/node")
-	config.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
-	config.disableFsync = LooksTrue(serverconf.getDefault("DEFAULT", "disable_fsync", "false"))
+	server.driveRoot = serverconf.getDefault("DEFAULT", "devices", "/srv/node")
+	server.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
+	server.disableFsync = LooksTrue(serverconf.getDefault("DEFAULT", "disable_fsync", "false"))
 	bindIP := serverconf.getDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort, err := strconv.ParseInt(serverconf.getDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
@@ -302,18 +335,18 @@ func RunServer(conf string) {
 	if allowedHeaders, ok := serverconf.Get("DEFAULT", "allowed_headers"); ok {
 		headers := strings.Split(allowedHeaders, ",")
 		for i := range headers {
-			config.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
+			server.allowedHeaders[textproto.CanonicalMIMEHeaderKey(strings.TrimSpace(headers[i]))] = true
 		}
 	}
 
-	handler := context.ClearHandler(weblogs.Handler(config))
 	sock, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindIP, bindPort))
 	if err != nil {
 		panic(fmt.Sprintf("Unable to bind %s:%d", bindIP, bindPort))
 	}
+	server.logger = SetupLogger(serverconf.getDefault("DEFAULT", "log_facility", "LOG_LOCAL0"), "object-server")
 	DropPrivileges(serverconf.getDefault("DEFAULT", "user", "swift"))
-	server := &http.Server{Handler: handler}
-	server.Serve(sock)
+	srv := &http.Server{Handler: server}
+	srv.Serve(sock)
 }
 
 func main() {
