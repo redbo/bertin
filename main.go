@@ -27,7 +27,7 @@ type ObjectServer struct {
 }
 
 func ErrorResponse(writer http.ResponseWriter, status int) {
-  	http.Error(writer, http.StatusText(status), status)
+	http.Error(writer, http.StatusText(status), status)
 }
 
 func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
@@ -246,8 +246,8 @@ type SaveStatusWriter struct {
 }
 
 func (w *SaveStatusWriter) WriteHeader(status int) {
-  w.ResponseWriter.WriteHeader(status)
-  w.Status = status
+	w.ResponseWriter.WriteHeader(status)
+	w.Status = status
 }
 
 func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
