@@ -26,26 +26,22 @@ type ObjectServer struct {
 	logger         *syslog.Writer
 }
 
-func ErrorResponse(writer http.ResponseWriter, status int) {
-	http.Error(writer, http.StatusText(status), status)
-}
-
 func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
 	headers := writer.Header()
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
-		ErrorResponse(writer, 507)
+		http.Error(writer, "Insufficent Storage", 507)
 		return
 	}
 	// TODO: do proper logic, .meta files...
 	dataFile := PrimaryFile(hashDir)
 	if dataFile == "" || strings.HasSuffix(dataFile, ".ts") {
-		ErrorResponse(writer, http.StatusNotFound)
+		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
 	file, err := os.Open(fmt.Sprintf("%s/%s", hashDir, dataFile))
 	if err != nil {
-		ErrorResponse(writer, http.StatusNotFound)
+		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
 	defer file.Close()
@@ -53,31 +49,35 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 
 	if deleteAt, ok := metadata["X-Delete-At"].(string); ok {
 		if deleteTime, err := ParseDate(deleteAt); err == nil && deleteTime.Before(time.Now()) {
-			ErrorResponse(writer, http.StatusNotFound)
+			http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
 	}
 
 	lastModified, err := ParseDate(metadata["X-Timestamp"].(string))
 	if err != nil {
-		ErrorResponse(writer, http.StatusInternalServerError)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
+	}
+	lastModifiedHeader, _ := ParseDate(metadata["X-Timestamp"].(string))
+	if lastModifiedHeader.Nanosecond() > 0 {
+		lastModifiedHeader = lastModifiedHeader.Truncate(time.Second).Add(time.Second)
 	}
 
 	if im := request.Header.Get("If-Match"); im != "" && !strings.Contains(im, metadata["ETag"].(string)) {
-		writer.WriteHeader(http.StatusPreconditionFailed)
+		http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
 		return
 	}
 	if inm := request.Header.Get("If-None-Match"); inm != "" && strings.Contains(inm, metadata["ETag"].(string)) {
-		writer.WriteHeader(http.StatusNotModified)
+		http.Error(writer, http.StatusText(http.StatusNotModified), http.StatusNotModified)
 		return
 	}
-	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && ius.Before(lastModified) {
-		writer.WriteHeader(http.StatusPreconditionFailed)
+	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && lastModified.Before(ius) {
+		http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
 		return
 	}
 	if ims, err := ParseDate(request.Header.Get("If-Modified-Since")); err == nil && !lastModified.After(ims) {
-		writer.WriteHeader(http.StatusNotModified)
+		http.Error(writer, http.StatusText(http.StatusNotModified), http.StatusNotModified)
 		return
 	}
 
@@ -85,7 +85,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 	headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
 	headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
-	headers.Set("Last-Modified", lastModified.Format(time.RFC1123))
+	headers.Set("Last-Modified", lastModifiedHeader.Format(time.RFC1123))
 	for key, value := range metadata {
 		if strings.HasPrefix(key.(string), "X-Object-") {
 			headers.Set(key.(string), value.(string))
@@ -96,7 +96,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		fileSize, _ := file.Seek(0, os.SEEK_END)
 		ranges, err := ParseRange(rangeHeader, fileSize)
 		if err != nil {
-			ErrorResponse(writer, http.StatusRequestedRangeNotSatisfiable)
+			http.Error(writer, http.StatusText(http.StatusRequestedRangeNotSatisfiable), http.StatusRequestedRangeNotSatisfiable)
 			return
 		}
 		if ranges != nil && len(ranges) == 1 {
@@ -120,18 +120,25 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	outHeaders := writer.Header()
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
-		ErrorResponse(writer, 507)
+		http.Error(writer, "Insufficent Storage", 507)
 		return
+	}
+	if inm := request.Header.Get("If-None-Match"); inm == "*" {
+		dataFile := PrimaryFile(hashDir)
+		if dataFile != "" && !strings.HasSuffix(dataFile, ".ts") {
+			http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
+			return
+		}
 	}
 
 	if os.MkdirAll(hashDir, 0770) != nil || os.MkdirAll(ObjTempDir(vars, server), 0770) != nil {
-		ErrorResponse(writer, 500)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	fileName := fmt.Sprintf("%s/%s.data", hashDir, request.Header.Get("X-Timestamp"))
 	tempFile, err := ioutil.TempFile(ObjTempDir(vars, server), "PUT")
 	if err != nil {
-		ErrorResponse(writer, 500)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	defer tempFile.Close()
@@ -162,7 +169,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	metadata["ETag"] = fmt.Sprintf("%x", hash.Sum(nil))
 	requestEtag := request.Header.Get("ETag")
 	if requestEtag != "" && requestEtag != metadata["ETag"].(string) {
-		ErrorResponse(writer, 422)
+		http.Error(writer, "Unprocessable Entity", 422)
 		return
 	}
 	outHeaders.Set("ETag", metadata["ETag"].(string))
@@ -178,25 +185,50 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	}
 	go CleanupHashDir(hashDir)
 	go InvalidateHash(hashDir)
-	ErrorResponse(writer, 201)
+	http.Error(writer, http.StatusText(http.StatusCreated), http.StatusCreated)
 }
 
 func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
-		ErrorResponse(writer, 507)
+		http.Error(writer, "Insufficent Storage", 507)
 		return
+	}
+	if ida := request.Header.Get("X-If-Delete-At"); ida != "" {
+		_, err = strconv.ParseInt(ida, 10, 64)
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		dataFile := PrimaryFile(hashDir)
+		if dataFile != "" && !strings.HasSuffix(dataFile, ".ts") {
+			http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
+			return
+		}
+		file, err := os.Open(fmt.Sprintf("%s/%s", hashDir, dataFile))
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+		metadata := ReadMetadata(int(file.Fd()))
+		if _, ok := metadata["X-Delete-At"]; ok {
+			if ida != metadata["X-Delete-At"] {
+				http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
+				return
+			}
+		}
 	}
 
 	if os.MkdirAll(hashDir, 0770) != nil {
-		ErrorResponse(writer, 500)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	fileName := fmt.Sprintf("%s/%s.ts", hashDir, request.Header.Get("X-Timestamp"))
 	dataFile := PrimaryFile(hashDir)
 	tempFile, err := ioutil.TempFile(ObjTempDir(vars, server), "PUT")
 	if err != nil {
-		ErrorResponse(writer, 500)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	defer tempFile.Close()
@@ -216,16 +248,16 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 	go CleanupHashDir(hashDir)
 	go InvalidateHash(hashDir)
 	if !strings.HasSuffix(dataFile, ".data") {
-		ErrorResponse(writer, 404)
+		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	} else {
-		ErrorResponse(writer, 204)
+		http.Error(writer, "", http.StatusNoContent)
 	}
 }
 
 func (server ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
 	hashes, err := GetHashes(server, vars["device"], vars["partition"], strings.Split(vars["suffixes"], "-"))
 	if err != nil {
-		ErrorResponse(writer, 500)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 	writer.WriteHeader(http.StatusOK)

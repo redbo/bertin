@@ -322,7 +322,7 @@ func ParseDate(date string) (time.Time, error) {
 		return ius, nil
 	}
 	if timestamp, err := strconv.ParseFloat(date, 64); err == nil {
-	  	nans := int64((timestamp - float64(int64(timestamp))) * 1.0e9)
+		nans := int64((timestamp - float64(int64(timestamp))) * 1.0e9)
 		return time.Unix(int64(timestamp), nans).In(GMT), nil
 	}
 	return time.Now(), errors.New("invalid time")
