@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log/syslog"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -307,19 +306,24 @@ func ParseRange(rangeHeader string, fileSize int64) ([]httpRange, error) {
 	return reqRanges, nil
 }
 
+var GMT *time.Location
+
 func ParseDate(date string) (time.Time, error) {
-	if ius, err := time.Parse(time.RFC1123, date); err == nil {
+	if GMT == nil {
+		GMT, _ = time.LoadLocation("GMT")
+	}
+	if ius, err := time.ParseInLocation(time.RFC1123, date, GMT); err == nil {
 		return ius, nil
 	}
-	if ius, err := time.Parse(time.RFC1123Z, date); err == nil {
+	if ius, err := time.ParseInLocation(time.RFC1123Z, date, GMT); err == nil {
 		return ius, nil
 	}
-	if ius, err := time.Parse(time.ANSIC, date); err == nil {
+	if ius, err := time.ParseInLocation(time.ANSIC, date, GMT); err == nil {
 		return ius, nil
 	}
 	if timestamp, err := strconv.ParseFloat(date, 64); err == nil {
-		nans := int64(math.Mod(timestamp*1.0e9, 1e9))
-		return time.Unix(int64(timestamp), nans), nil
+	  	nans := int64((timestamp - float64(int64(timestamp))) * 1.0e9)
+		return time.Unix(int64(timestamp), nans).In(GMT), nil
 	}
 	return time.Now(), errors.New("invalid time")
 }
