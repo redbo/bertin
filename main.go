@@ -45,7 +45,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		return
 	}
 	defer file.Close()
-	metadata := ReadMetadata(int(file.Fd()))
+	metadata, _ := ReadMetadataFd(int(file.Fd()))
 
 	if deleteAt, ok := metadata["X-Delete-At"].(string); ok {
 		if deleteTime, err := ParseDate(deleteAt); err == nil && deleteTime.Before(time.Now()) {
@@ -59,10 +59,6 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
-	lastModifiedHeader, _ := ParseDate(metadata["X-Timestamp"].(string))
-	if lastModifiedHeader.Nanosecond() > 0 {
-		lastModifiedHeader = lastModifiedHeader.Truncate(time.Second).Add(time.Second)
-	}
 
 	if im := request.Header.Get("If-Match"); im != "" && !strings.Contains(im, metadata["ETag"].(string)) {
 		http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
@@ -72,20 +68,23 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		http.Error(writer, http.StatusText(http.StatusNotModified), http.StatusNotModified)
 		return
 	}
-	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && lastModified.Before(ius) {
+	if ius, err := ParseDate(request.Header.Get("If-Unmodified-Since")); err == nil && lastModified.After(ius) {
 		http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
 		return
 	}
-	if ims, err := ParseDate(request.Header.Get("If-Modified-Since")); err == nil && !lastModified.After(ims) {
+	if ims, err := ParseDate(request.Header.Get("If-Modified-Since")); err == nil && lastModified.Before(ims) {
 		http.Error(writer, http.StatusText(http.StatusNotModified), http.StatusNotModified)
 		return
+	}
+	if lastModified.Nanosecond() > 0 {
+		lastModified= lastModified.Truncate(time.Second).Add(time.Second)
 	}
 
 	headers.Set("Content-Length", metadata["Content-Length"].(string))
 	headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
 	headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
-	headers.Set("Last-Modified", lastModifiedHeader.Format(time.RFC1123))
+	headers.Set("Last-Modified", lastModified.Format(time.RFC1123))
 	for key, value := range metadata {
 		if strings.HasPrefix(key.(string), "X-Object-") {
 			headers.Set(key.(string), value.(string))
@@ -194,24 +193,22 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 		http.Error(writer, "Insufficent Storage", 507)
 		return
 	}
+	dataFile := PrimaryFile(hashDir)
 	if ida := request.Header.Get("X-If-Delete-At"); ida != "" {
 		_, err = strconv.ParseInt(ida, 10, 64)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
-		dataFile := PrimaryFile(hashDir)
 		if dataFile != "" && !strings.HasSuffix(dataFile, ".ts") {
 			http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
 			return
 		}
-		file, err := os.Open(fmt.Sprintf("%s/%s", hashDir, dataFile))
+		metadata, err := ReadMetadataFilename(fmt.Sprintf("%s/%s", hashDir, dataFile))
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
-		defer file.Close()
-		metadata := ReadMetadata(int(file.Fd()))
 		if _, ok := metadata["X-Delete-At"]; ok {
 			if ida != metadata["X-Delete-At"] {
 				http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
@@ -225,7 +222,6 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 		return
 	}
 	fileName := fmt.Sprintf("%s/%s.ts", hashDir, request.Header.Get("X-Timestamp"))
-	dataFile := PrimaryFile(hashDir)
 	tempFile, err := ioutil.TempFile(ObjTempDir(vars, server), "PUT")
 	if err != nil {
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

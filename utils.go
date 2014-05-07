@@ -26,7 +26,7 @@ type httpRange struct {
 	start, end int64
 }
 
-func ReadMetadata(fd int) map[interface{}]interface{} {
+func ReadMetadataFd(fd int) (map[interface{}]interface{}, error) {
 	var pickledMetadata [32768]byte
 	offset := 0
 	for index := 0; ; index += 1 {
@@ -43,7 +43,16 @@ func ReadMetadata(fd int) map[interface{}]interface{} {
 		offset += length
 	}
 	v := PickleLoads(string(pickledMetadata[0:offset]))
-	return v.(map[interface{}]interface{})
+	return v.(map[interface{}]interface{}), nil
+}
+
+func ReadMetadataFilename(filename string) (map[interface{}]interface{}, error) {
+    file, err := os.Open(filename)
+    if err != nil {
+		return nil, errors.New("Unable to open file.")
+    }
+    defer file.Close()
+	return ReadMetadataFd(int(file.Fd()))
 }
 
 func WriteMetadata(fd int, v map[string]interface{}) {
@@ -319,6 +328,9 @@ func ParseDate(date string) (time.Time, error) {
 		return ius, nil
 	}
 	if ius, err := time.ParseInLocation(time.ANSIC, date, GMT); err == nil {
+		return ius, nil
+	}
+	if ius, err := time.ParseInLocation(time.RFC850, date, GMT); err == nil {
 		return ius, nil
 	}
 	if timestamp, err := strconv.ParseFloat(date, 64); err == nil {
