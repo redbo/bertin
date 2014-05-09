@@ -141,6 +141,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 		return
 	}
 	defer tempFile.Close()
+	defer os.RemoveAll(tempFile.Name())
 	metadata := make(map[string]interface{})
 	metadata["name"] = fmt.Sprintf("/%s/%s/%s", vars["account"], vars["container"], vars["obj"])
 	metadata["X-Timestamp"] = request.Header.Get("X-Timestamp")
@@ -157,7 +158,11 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	hash := md5.New()
 	for {
 		readLen, err := request.Body.Read(chunk[0:len(chunk)])
-		if err != nil || readLen <= 0 {
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		  	return
+		}
+		if readLen <= 0 {
 			break
 		}
 		totalSize += uint64(readLen)
