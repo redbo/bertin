@@ -248,7 +248,7 @@ func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[
 	req.Header.Add("X-Timestamp", request.Header.Get("X-Timestamp"))
 	req.Header.Add("X-Size", "0")
 	req.Header.Add("X-Content-Type", "text/plain")
-	req.Header.Add("X-Etag", "d41d8cd98f00b204e9800998ecf8427e")
+	req.Header.Add("X-Etag", metadata["ETag"])
 	resp, err := client.Do(req)
 	if err != nil || (resp.StatusCode/100) != 2 {
 		// TODO: async update files
