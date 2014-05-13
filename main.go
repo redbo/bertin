@@ -59,6 +59,18 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+	lastModifiedHeader := lastModified
+	if lastModified.Nanosecond() > 0 {  // for some reason, Last-Modified is ceil(X-Timestamp)
+		lastModifiedHeader = lastModified.Truncate(time.Second).Add(time.Second)
+	}
+	headers.Set("Last-Modified", lastModifiedHeader.Format(time.RFC1123))
+	headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
+	headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
+	for key, value := range metadata {
+		if allowed, ok := server.allowedHeaders[key.(string)]; (ok && allowed) || strings.HasPrefix(key.(string), "X-Object-Meta-") {
+			headers.Set(key.(string), value.(string))
+		}
+	}
 
 	if im := request.Header.Get("If-Match"); im != "" && !strings.Contains(im, metadata["ETag"].(string)) {
 		http.Error(writer, http.StatusText(http.StatusPreconditionFailed), http.StatusPreconditionFailed)
@@ -76,20 +88,8 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		http.Error(writer, http.StatusText(http.StatusNotModified), http.StatusNotModified)
 		return
 	}
-	if lastModified.Nanosecond() > 0 {
-		lastModified= lastModified.Truncate(time.Second).Add(time.Second)
-	}
-
-	headers.Set("Content-Length", metadata["Content-Length"].(string))
-	headers.Set("ETag", fmt.Sprintf("\"%s\"", metadata["ETag"].(string)))
-	headers.Set("X-Timestamp", metadata["X-Timestamp"].(string))
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
-	headers.Set("Last-Modified", lastModified.Format(time.RFC1123))
-	for key, value := range metadata {
-		if allowed, ok := server.allowedHeaders[key.(string)]; (ok && allowed) || strings.HasPrefix(key.(string), "X-Object-Meta-") {
-			headers.Set(key.(string), value.(string))
-		}
-	}
+	headers.Set("Content-Length", metadata["Content-Length"].(string))
 
 	if rangeHeader := request.Header.Get("Range"); rangeHeader != "" {
 		fileSize, _ := file.Seek(0, os.SEEK_END)
@@ -321,15 +321,6 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 		server.ObjReplicateHandler(newWriter, request, vars)
 	}
 
-/*
-	fmt.Printf("[%s] %s %s %d\n",
-		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
-		request.Method,
-		request.URL.Path,
-		newWriter.Status) // TODO: "additional info"
-	fmt.Printf("%s\n", request.Header)
-	fmt.Printf("%s\n", writer.Header())
-*/
 	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
 		request.RemoteAddr,
 		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
