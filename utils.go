@@ -74,28 +74,28 @@ func WriteMetadata(fd int, v map[string]interface{}) {
 }
 
 func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
-  	partDir := filepath.Dir(filename)
+	partDir := filepath.Dir(filename)
 	tmpFile, err := ioutil.TempFile(partDir, ".tmp-o-file")
 	if err != nil {
-	  return err
+		return err
 	}
 	defer tmpFile.Close()
 	defer os.RemoveAll(tmpFile.Name())
 	err = tmpFile.Chmod(perm)
 	if err != nil {
-	  return err
+		return err
 	}
 	_, err = tmpFile.Write(data)
 	if err != nil {
-	  return err
+		return err
 	}
 	err = tmpFile.Sync()
 	if err != nil {
-	  return err
+		return err
 	}
 	err = syscall.Rename(tmpFile.Name(), filename)
 	if err != nil {
-	  return err
+		return err
 	}
 	return nil
 }

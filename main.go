@@ -178,7 +178,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	WriteMetadata(int(tempFile.Fd()), metadata)
 
 	if !server.disableFsync {
-	  	tempFile.Sync()
+		tempFile.Sync()
 	}
 	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
