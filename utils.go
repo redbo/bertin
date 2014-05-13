@@ -73,7 +73,35 @@ func WriteMetadata(fd int, v map[string]interface{}) {
 	}
 }
 
+func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
+  	partDir := filepath.Dir(filename)
+	tmpFile, err := ioutil.TempFile(partDir, ".tmp-o-file")
+	if err != nil {
+	  return err
+	}
+	defer tmpFile.Close()
+	defer os.RemoveAll(tmpFile.Name())
+	err = tmpFile.Chmod(perm)
+	if err != nil {
+	  return err
+	}
+	_, err = tmpFile.Write(data)
+	if err != nil {
+	  return err
+	}
+	err = tmpFile.Sync()
+	if err != nil {
+	  return err
+	}
+	err = syscall.Rename(tmpFile.Name(), filename)
+	if err != nil {
+	  return err
+	}
+	return nil
+}
+
 func InvalidateHash(hashDir string) {
+	// TODO: return errors
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
 	pklFile := fmt.Sprintf("%s/hashes.pkl", partitionDir)
@@ -83,8 +111,7 @@ func InvalidateHash(hashDir string) {
 	}
 	v := PickleLoads(string(data))
 	v.(map[string]interface{})[suffDir] = nil
-	// TODO: atomic
-	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+	WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
 }
 
 func HashCleanupListdir(hashDir string) ([]string, error) {
@@ -151,8 +178,7 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 			}
 		}
 	}
-	// TODO: atomic
-	ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+	WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
 	return v, nil
 }
 
@@ -248,7 +274,7 @@ func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[
 	req.Header.Add("X-Timestamp", request.Header.Get("X-Timestamp"))
 	req.Header.Add("X-Size", "0")
 	req.Header.Add("X-Content-Type", "text/plain")
-	req.Header.Add("X-Etag", metadata["ETag"])
+	req.Header.Add("X-Etag", metadata["ETag"].(string))
 	resp, err := client.Do(req)
 	if err != nil || (resp.StatusCode/100) != 2 {
 		// TODO: async update files
