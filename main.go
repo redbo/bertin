@@ -347,19 +347,19 @@ func RunServer(conf string) {
 	}
 
 	if swiftconf, err := LoadIniFile("/etc/swift/swift.conf"); err == nil {
-		server.hashPathPrefix = swiftconf.getDefault("swift-hash", "swift_hash_path_prefix", "")
-		server.hashPathSuffix = swiftconf.getDefault("swift-hash", "swift_hash_path_suffix", "")
+		server.hashPathPrefix = swiftconf.GetDefault("swift-hash", "swift_hash_path_prefix", "")
+		server.hashPathSuffix = swiftconf.GetDefault("swift-hash", "swift_hash_path_suffix", "")
 	}
 
 	serverconf, err := LoadIniFile(conf)
 	if err != nil {
 		panic(fmt.Sprintf("Unable to load %s", conf))
 	}
-	server.driveRoot = serverconf.getDefault("DEFAULT", "devices", "/srv/node")
-	server.checkMounts = LooksTrue(serverconf.getDefault("DEFAULT", "mount_check", "true"))
-	server.disableFsync = LooksTrue(serverconf.getDefault("DEFAULT", "disable_fsync", "false"))
-	bindIP := serverconf.getDefault("DEFAULT", "bind_ip", "0.0.0.0")
-	bindPort, err := strconv.ParseInt(serverconf.getDefault("DEFAULT", "bind_port", "8080"), 10, 64)
+	server.driveRoot = serverconf.GetDefault("DEFAULT", "devices", "/srv/node")
+	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
+	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
+	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
+	bindPort, err := strconv.ParseInt(serverconf.GetDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
 		panic("Invalid bind port format")
 	}
@@ -374,8 +374,8 @@ func RunServer(conf string) {
 	if err != nil {
 		panic(fmt.Sprintf("Unable to bind %s:%d", bindIP, bindPort))
 	}
-	server.logger = SetupLogger(serverconf.getDefault("DEFAULT", "log_facility", "LOG_LOCAL0"), "object-server")
-	DropPrivileges(serverconf.getDefault("DEFAULT", "user", "swift"))
+	server.logger = SetupLogger(serverconf.GetDefault("DEFAULT", "log_facility", "LOG_LOCAL0"), "object-server")
+	DropPrivileges(serverconf.GetDefault("DEFAULT", "user", "swift"))
 	srv := &http.Server{Handler: server}
 	srv.Serve(sock)
 }

@@ -386,7 +386,7 @@ func LooksTrue(check string) bool {
 
 type IniFile struct{ ini.File }
 
-func (f IniFile) getDefault(section string, key string, dfl string) string {
+func (f IniFile) GetDefault(section string, key string, dfl string) string {
 	if value, ok := f.Get(section, key); ok {
 		return value
 	}
