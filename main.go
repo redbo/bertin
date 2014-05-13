@@ -60,7 +60,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 		return
 	}
 	lastModifiedHeader := lastModified
-	if lastModified.Nanosecond() > 0 {  // for some reason, Last-Modified is ceil(X-Timestamp)
+	if lastModified.Nanosecond() > 0 { // for some reason, Last-Modified is ceil(X-Timestamp)
 		lastModifiedHeader = lastModified.Truncate(time.Second).Add(time.Second)
 	}
 	headers.Set("Last-Modified", lastModifiedHeader.Format(time.RFC1123))

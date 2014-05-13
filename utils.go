@@ -47,11 +47,11 @@ func ReadMetadataFd(fd int) (map[interface{}]interface{}, error) {
 }
 
 func ReadMetadataFilename(filename string) (map[interface{}]interface{}, error) {
-    file, err := os.Open(filename)
-    if err != nil {
+	file, err := os.Open(filename)
+	if err != nil {
 		return nil, errors.New("Unable to open file.")
-    }
-    defer file.Close()
+	}
+	defer file.Close()
 	return ReadMetadataFd(int(file.Fd()))
 }
 
