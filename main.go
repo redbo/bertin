@@ -86,7 +86,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
 	headers.Set("Last-Modified", lastModified.Format(time.RFC1123))
 	for key, value := range metadata {
-		if strings.HasPrefix(key.(string), "X-Object-") {
+		if allowed, ok := server.allowedHeaders[key.(string)]; (ok && allowed) || strings.HasPrefix(key.(string), "X-Object-Meta-") {
 			headers.Set(key.(string), value.(string))
 		}
 	}
@@ -147,9 +147,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	metadata["X-Timestamp"] = request.Header.Get("X-Timestamp")
 	metadata["Content-Type"] = request.Header.Get("Content-Type")
 	for key := range request.Header {
-		if strings.HasPrefix(key, "X-Object-Meta-") {
-			metadata[key] = request.Header.Get(key)
-		} else if allowed, ok := server.allowedHeaders[key]; ok && allowed {
+		if allowed, ok := server.allowedHeaders[key]; (ok && allowed) || strings.HasPrefix(key, "X-Object-Meta-") {
 			metadata[key] = request.Header.Get(key)
 		}
 	}
@@ -158,12 +156,12 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	hash := md5.New()
 	for {
 		readLen, err := request.Body.Read(chunk[0:len(chunk)])
-		if err != nil {
-			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		  	return
-		}
-		if readLen <= 0 {
+		if readLen <= 0 || (err != nil && err.Error() == "EOF") {
 			break
+		}
+		if err != nil {
+			fmt.Printf("ERROR: %s\n", err)
+			return
 		}
 		totalSize += uint64(readLen)
 		hash.Write(chunk[0:readLen])
@@ -323,6 +321,15 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 		server.ObjReplicateHandler(newWriter, request, vars)
 	}
 
+/*
+	fmt.Printf("[%s] %s %s %d\n",
+		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
+		request.Method,
+		request.URL.Path,
+		newWriter.Status) // TODO: "additional info"
+	fmt.Printf("%s\n", request.Header)
+	fmt.Printf("%s\n", writer.Header())
+*/
 	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
 		request.RemoteAddr,
 		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
