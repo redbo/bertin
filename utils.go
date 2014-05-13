@@ -81,29 +81,40 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
 	}
 	defer tmpFile.Close()
 	defer os.RemoveAll(tmpFile.Name())
-	err = tmpFile.Chmod(perm)
-	if err != nil {
+	if err = tmpFile.Chmod(perm); err != nil {
 		return err
 	}
-	_, err = tmpFile.Write(data)
-	if err != nil {
+	if _, err = tmpFile.Write(data); err != nil {
 		return err
 	}
-	err = tmpFile.Sync()
-	if err != nil {
+	if err = tmpFile.Sync(); err != nil {
 		return err
 	}
-	err = syscall.Rename(tmpFile.Name(), filename)
-	if err != nil {
+	if err = syscall.Rename(tmpFile.Name(), filename); err != nil {
 		return err
 	}
 	return nil
+}
+
+func LockPath(directory string) (*os.File, error) {
+	lockfile := filepath.Join(directory, ".lock")
+	file, err := os.Open(lockfile)
+	if err != nil {
+		return nil, errors.New("Unable to open file.")
+	}
+	syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+	return file, nil
 }
 
 func InvalidateHash(hashDir string) {
 	// TODO: return errors
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
+	partitionLock, err := LockPath(partitionDir)
+	if err != nil {
+		return
+	}
+	defer partitionLock.Close()
 	pklFile := fmt.Sprintf("%s/hashes.pkl", partitionDir)
 	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
@@ -160,7 +171,9 @@ func RecalculateSuffixHash(suffixDir string) (string, error) {
 }
 
 func GetHashes(server ObjectServer, device string, partition string, recalculate []string) (map[string]interface{}, error) {
-	pklFile := fmt.Sprintf("%s/%s/%s/hashes.pkl", server.driveRoot, device, partition)
+	// TODO: check for updates and recurse, etc.
+	partitionDir := filepath.Join(server.driveRoot, device, partition)
+	pklFile := filepath.Join(partitionDir, "hashes.pkl")
 	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
 		return nil, err
@@ -169,7 +182,6 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 	for _, suffix := range recalculate {
 		v[suffix] = nil
 	}
-	// TODO: locking, check for updates and recurse, etc.
 	for suffix, hash := range v {
 		if hash == nil || hash == "" {
 			v[suffix], err = RecalculateSuffixHash(fmt.Sprintf("%s/%s/%s/%s", server.driveRoot, device, partition, suffix))
@@ -178,6 +190,11 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 			}
 		}
 	}
+	partitionLock, err := LockPath(partitionDir)
+	if err != nil {
+		return nil, err
+	}
+	defer partitionLock.Close()
 	WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
 	return v, nil
 }
@@ -190,8 +207,7 @@ func ObjHashDir(vars map[string]string, server ObjectServer) (string, error) {
 	suffix := hexHash[29:32]
 	devicePath := fmt.Sprintf("%s/%s", server.driveRoot, vars["device"])
 	if server.checkMounts {
-		mounted, err := IsMount(devicePath)
-		if err != nil || mounted != true {
+		if mounted, err := IsMount(devicePath); err != nil || mounted != true {
 			return "", errors.New("Not mounted")
 		}
 	}
@@ -275,8 +291,7 @@ func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[
 	req.Header.Add("X-Size", "0")
 	req.Header.Add("X-Content-Type", "text/plain")
 	req.Header.Add("X-Etag", metadata["ETag"].(string))
-	resp, err := client.Do(req)
-	if err != nil || (resp.StatusCode/100) != 2 {
+	if resp, err := client.Do(req); err != nil || (resp.StatusCode/100) != 2 {
 		// TODO: async update files
 	}
 }
