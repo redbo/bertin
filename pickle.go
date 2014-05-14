@@ -11,6 +11,8 @@ INLINE int myPyDict_Check(PyObject *o) {return PyDict_Check(o);}
 INLINE int myPyInt_Check(PyObject *o) {return PyInt_Check(o);}
 INLINE PyObject *PyObject_CallFunction1(PyObject *f, PyObject *o1)
     {return PyObject_CallFunctionObjArgs(f, o1, NULL);}
+INLINE PyObject *PyObject_CallFunction2(PyObject *f, PyObject *o1, PyObject *o2)
+    {return PyObject_CallFunctionObjArgs(f, o1, o2, NULL);}
 INLINE PyObject *PyNone() {Py_INCREF(Py_None); return Py_None;}
 */
 import "C"
@@ -22,6 +24,7 @@ import (
 var initialized int = 0
 var pickleLoads *C.PyObject
 var pickleDumps *C.PyObject
+var highestProtocol *C.PyObject
 var pickleLock sync.Mutex
 
 func pickleInit() {
@@ -30,6 +33,7 @@ func pickleInit() {
 		var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
 		pickleLoads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
 		pickleDumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
+		highestProtocol = C.PyObject_GetAttrString(cPickle, C.CString("HIGHEST_PROTOCOL"))
 		C.Py_DecRef(cPickle)
 		initialized = 1
 	}
@@ -114,7 +118,7 @@ func PickleDumps(v interface{}) string {
 	pickleLock.Lock()
 	pickleInit()
 	obj := interfaceToPyObj(v)
-	str := C.PyObject_CallFunction1(pickleDumps, obj)
+	str := C.PyObject_CallFunction2(pickleDumps, obj, highestProtocol)
 	gostr := pyObjToInterface(str)
 	C.Py_DecRef(obj)
 	C.Py_DecRef(str)
