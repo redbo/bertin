@@ -357,7 +357,7 @@ func RunServer(conf string) {
 	}
 	server.driveRoot = serverconf.GetDefault("DEFAULT", "devices", "/srv/node")
 	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
-	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "true"))
+	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort, err := strconv.ParseInt(serverconf.GetDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
