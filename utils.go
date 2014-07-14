@@ -106,7 +106,7 @@ func LockPath(directory string) (*os.File, error) {
 	return file, nil
 }
 
-func InvalidateHash(hashDir string) {
+func InvalidateHash(hashDir string, atomic bool) {
 	// TODO: return errors
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
@@ -122,7 +122,11 @@ func InvalidateHash(hashDir string) {
 	}
 	v := PickleLoads(string(data))
 	v.(map[string]interface{})[suffDir] = nil
-	WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
+	if atomic {
+		WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
+	} else {
+		ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+	}
 }
 
 func HashCleanupListdir(hashDir string) ([]string, error) {

@@ -186,7 +186,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 		go UpdateDeleteAt(request, vars, metadata)
 	}
 	go CleanupHashDir(hashDir)
-	go InvalidateHash(hashDir)
+	go InvalidateHash(hashDir, !server.disableFsync)
 	http.Error(writer, http.StatusText(http.StatusCreated), http.StatusCreated)
 }
 
@@ -237,7 +237,7 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 	WriteMetadata(int(tempFile.Fd()), metadata)
 
 	if !server.disableFsync {
-		syscall.Fsync(int(tempFile.Fd()))
+		tempFile.Sync()
 	}
 	syscall.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
@@ -245,7 +245,7 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 		go UpdateDeleteAt(request, vars, metadata)
 	}
 	go CleanupHashDir(hashDir)
-	go InvalidateHash(hashDir)
+	go InvalidateHash(hashDir, !server.disableFsync)
 	if !strings.HasSuffix(dataFile, ".data") {
 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	} else {
@@ -357,7 +357,7 @@ func RunServer(conf string) {
 	}
 	server.driveRoot = serverconf.GetDefault("DEFAULT", "devices", "/srv/node")
 	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
-	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
+	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "true"))
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort, err := strconv.ParseInt(serverconf.GetDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
