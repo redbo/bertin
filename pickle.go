@@ -125,3 +125,19 @@ func PickleDumps(v interface{}) string {
 	pickleLock.Unlock()
 	return gostr.(string)
 }
+
+/*
+import (
+	"github.com/vmihailenco/msgpack"
+)
+
+func PickleLoads(data string) interface{} {
+	var out interface{}
+	msgpack.Unmarshal([]byte(data), &out)
+	return out
+}
+func PickleDumps(v interface{}) string {
+	b, _:= msgpack.Marshal(v)
+	return string(b)
+}
+*/
