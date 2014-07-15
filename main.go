@@ -151,37 +151,12 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 			metadata[key] = request.Header.Get(key)
 		}
 	}
-	//var chunk [65536]byte
-	totalSize := int64(0)
 	hash := md5.New()
-	for {
-		written, err := io.CopyN(tempFile, request.Body, 524288)
-		if written <= 0 || (err != nil && err == io.EOF) {
-			break
-		}
-		if err != nil {
-			fmt.Printf("ERROR: %s\n", err)
-			return
-		}
-		tempFile.Seek(totalSize, os.SEEK_SET)
-		io.CopyN(hash, tempFile, written)
-		totalSize += written
-    }
-	/*
-	for {
-		readLen, err := request.Body.Read(chunk[0:len(chunk)])
-		if readLen <= 0 || (err != nil && err == io.EOF) {
-			break
-		}
-		if err != nil {
-			fmt.Printf("ERROR: %s\n", err)
-			return
-		}
-		totalSize += uint64(readLen)
-		hash.Write(chunk[0:readLen])
-		tempFile.Write(chunk[0:readLen])
+	totalSize, err := io.Copy(hash, io.TeeReader(request.Body, tempFile))
+	if err != nil {
+		fmt.Printf("ERROR: %s\n", err)
+		return
 	}
-	*/
 	metadata["Content-Length"] = strconv.FormatInt(totalSize, 10)
 	metadata["ETag"] = fmt.Sprintf("%x", hash.Sum(nil))
 	requestEtag := request.Header.Get("ETag")
