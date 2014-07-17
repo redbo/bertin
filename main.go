@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,6 +25,8 @@ type ObjectServer struct {
 	asyncCleanup   bool
 	allowedHeaders map[string]bool
 	logger         *syslog.Writer
+	diskLimit      int64
+	diskInUse      map[string]int64
 }
 
 // ResponseWriter that saves its status - used for logging.
@@ -297,6 +300,21 @@ func GetDefault(h http.Header, key string, dfl string) string {
 	return val
 }
 
+func (server ObjectServer) AcquireDisk(disk string) bool {
+	if _, ok := server.diskInUse[disk]; !ok {
+		server.diskInUse[disk] = 0
+	}
+	if server.diskInUse[disk] > server.diskLimit {
+		return false
+	}
+	server.diskInUse[disk] += 1
+	return true
+}
+
+func (server ObjectServer) ReleaseDisk(disk string) {
+	server.diskInUse[disk] -= 1
+}
+
 func (server ObjectServer) LogRequest(writer *SwiftWriter, request *SwiftRequest) {
 	go server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
 		request.RemoteAddr,
@@ -317,6 +335,17 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 		writer.Header().Set("Content-Length", "2")
 		writer.WriteHeader(http.StatusOK)
 		writer.Write([]byte("OK"))
+		return
+	}
+	if request.URL.Path == "/diskusage" {
+		data, err := json.Marshal(server.diskInUse)
+		if err == nil {
+			writer.WriteHeader(http.StatusOK)
+			writer.Write(data)
+		} else {
+			writer.WriteHeader(http.StatusInternalServerError)
+			writer.Write([]byte(err.Error()))
+		}
 		return
 	}
 	parts := strings.SplitN(request.URL.Path, "/", 6)
@@ -342,6 +371,12 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 	newRequest := &SwiftRequest{request, time.Now()}
 	defer server.LogRequest(newWriter, newRequest) // log the request after return
 
+	if !server.AcquireDisk(vars["device"]) {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+	defer server.ReleaseDisk(vars["device"])
+
 	switch request.Method {
 	case "GET":
 		server.ObjGetHandler(newWriter, newRequest, vars)
@@ -365,6 +400,7 @@ func RunServer(conf string) {
 			"X-Object-Manifest":     true,
 			"X-Static-Large-Object": true,
 		},
+		diskInUse: map[string]int64{},
 	}
 
 	if swiftconf, err := LoadIniFile("/etc/swift/swift.conf"); err == nil {
@@ -380,6 +416,10 @@ func RunServer(conf string) {
 	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
 	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
 	server.asyncCleanup = LooksTrue(serverconf.GetDefault("DEFAULT", "async_cleanup", "false"))
+	server.diskLimit, err = strconv.ParseInt(serverconf.GetDefault("DEFAULT", "disk_limit", "100"), 10, 64)
+	if err != nil {
+		panic("Invalid disk_limit format")
+	}
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort, err := strconv.ParseInt(serverconf.GetDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
