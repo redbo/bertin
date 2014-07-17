@@ -22,7 +22,7 @@ type ObjectServer struct {
 	hashPathSuffix string
 	checkMounts    bool
 	disableFsync   bool
-	asyncCleanup   bool
+	asyncFinalize  bool
 	allowedHeaders map[string]bool
 	logger         *syslog.Writer
 	diskLimit      int64
@@ -204,7 +204,7 @@ func (server ObjectServer) ObjPutHandler(writer *SwiftWriter, request *SwiftRequ
 		CleanupHashDir(hashDir)
 		InvalidateHash(hashDir, !server.disableFsync)
 	}
-	if server.asyncCleanup {
+	if server.asyncFinalize {
 		go finalize()
 	} else {
 		finalize()
@@ -270,7 +270,7 @@ func (server ObjectServer) ObjDeleteHandler(writer *SwiftWriter, request *SwiftR
 		CleanupHashDir(hashDir)
 		InvalidateHash(hashDir, !server.disableFsync)
 	}
-	if server.asyncCleanup {
+	if server.asyncFinalize {
 		go finalize()
 	} else {
 		finalize()
@@ -393,7 +393,7 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 func RunServer(conf string) {
 	server := ObjectServer{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
-		checkMounts: true, disableFsync: false, asyncCleanup: false,
+		checkMounts: true, disableFsync: false, asyncFinalize: false,
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
@@ -415,7 +415,7 @@ func RunServer(conf string) {
 	server.driveRoot = serverconf.GetDefault("DEFAULT", "devices", "/srv/node")
 	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
 	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
-	server.asyncCleanup = LooksTrue(serverconf.GetDefault("DEFAULT", "async_cleanup", "false"))
+	server.asyncFinalize = LooksTrue(serverconf.GetDefault("DEFAULT", "async_finalize", "false"))
 	server.diskLimit, err = strconv.ParseInt(serverconf.GetDefault("DEFAULT", "disk_limit", "100"), 10, 64)
 	if err != nil {
 		panic("Invalid disk_limit format")
