@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -191,7 +190,7 @@ func (server ObjectServer) ObjPutHandler(writer *SwiftWriter, request *SwiftRequ
 	if !server.disableFsync {
 		tempFile.Sync()
 	}
-	syscall.Rename(tempFile.Name(), fileName)
+	os.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
 	if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
 		go UpdateDeleteAt(request, vars, metadata)
@@ -250,7 +249,7 @@ func (server ObjectServer) ObjDeleteHandler(writer *SwiftWriter, request *SwiftR
 	if !server.disableFsync {
 		tempFile.Sync()
 	}
-	syscall.Rename(tempFile.Name(), fileName)
+	os.Rename(tempFile.Name(), fileName)
 	UpdateContainer(metadata, request, vars)
 	if _, ok := metadata["X-Delete-At"]; ok {
 		go UpdateDeleteAt(request, vars, metadata)
