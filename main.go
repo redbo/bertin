@@ -21,6 +21,7 @@ type ObjectServer struct {
 	hashPathSuffix string
 	checkMounts    bool
 	disableFsync   bool
+	asyncCleanup   bool
 	allowedHeaders map[string]bool
 	logger         *syslog.Writer
 }
@@ -191,12 +192,20 @@ func (server ObjectServer) ObjPutHandler(writer *SwiftWriter, request *SwiftRequ
 		tempFile.Sync()
 	}
 	os.Rename(tempFile.Name(), fileName)
-	UpdateContainer(metadata, request, vars)
-	if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
-		go UpdateDeleteAt(request, vars, metadata)
+
+	finalize := func() {
+		UpdateContainer(metadata, request, vars)
+		if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
+			UpdateDeleteAt(request, vars, metadata)
+		}
+		CleanupHashDir(hashDir)
+		InvalidateHash(hashDir, !server.disableFsync)
 	}
-	go CleanupHashDir(hashDir)
-	go InvalidateHash(hashDir, !server.disableFsync)
+	if server.asyncCleanup {
+		go finalize()
+	} else {
+		finalize()
+	}
 	http.Error(writer, http.StatusText(http.StatusCreated), http.StatusCreated)
 }
 
@@ -250,12 +259,19 @@ func (server ObjectServer) ObjDeleteHandler(writer *SwiftWriter, request *SwiftR
 		tempFile.Sync()
 	}
 	os.Rename(tempFile.Name(), fileName)
-	UpdateContainer(metadata, request, vars)
-	if _, ok := metadata["X-Delete-At"]; ok {
-		go UpdateDeleteAt(request, vars, metadata)
+	finalize := func() {
+		UpdateContainer(metadata, request, vars)
+		if _, ok := metadata["X-Delete-At"]; ok {
+			UpdateDeleteAt(request, vars, metadata)
+		}
+		CleanupHashDir(hashDir)
+		InvalidateHash(hashDir, !server.disableFsync)
 	}
-	go CleanupHashDir(hashDir)
-	go InvalidateHash(hashDir, !server.disableFsync)
+	if server.asyncCleanup {
+		go finalize()
+	} else {
+		finalize()
+	}
 	if !strings.HasSuffix(dataFile, ".data") {
 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	} else {
@@ -342,7 +358,7 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 func RunServer(conf string) {
 	server := ObjectServer{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
-		checkMounts: true, disableFsync: false,
+		checkMounts: true, disableFsync: false, asyncCleanup: false,
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,
 			"X-Delete-At":           true,
@@ -363,6 +379,7 @@ func RunServer(conf string) {
 	server.driveRoot = serverconf.GetDefault("DEFAULT", "devices", "/srv/node")
 	server.checkMounts = LooksTrue(serverconf.GetDefault("DEFAULT", "mount_check", "true"))
 	server.disableFsync = LooksTrue(serverconf.GetDefault("DEFAULT", "disable_fsync", "false"))
+	server.asyncCleanup = LooksTrue(serverconf.GetDefault("DEFAULT", "async_cleanup", "false"))
 	bindIP := serverconf.GetDefault("DEFAULT", "bind_ip", "0.0.0.0")
 	bindPort, err := strconv.ParseInt(serverconf.GetDefault("DEFAULT", "bind_port", "8080"), 10, 64)
 	if err != nil {
