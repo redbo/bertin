@@ -29,20 +29,20 @@ type ObjectServer struct {
 // ResponseWriter that saves its status - used for logging.
 
 type SwiftWriter struct {
-    http.ResponseWriter
-    Status int
+	http.ResponseWriter
+	Status int
 }
 
 func (w *SwiftWriter) WriteHeader(status int) {
-    w.ResponseWriter.WriteHeader(status)
-    w.Status = status
+	w.ResponseWriter.WriteHeader(status)
+	w.Status = status
 }
 
 // http.Request that also contains swift-specific info about the request
 
 type SwiftRequest struct {
-    *http.Request
-    Start         time.Time
+	*http.Request
+	Start time.Time
 }
 
 // request handlers
@@ -324,7 +324,7 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 	}
 
 	newWriter := &SwiftWriter{writer, 200}
-    newRequest := &SwiftRequest{request, time.Now()}
+	newRequest := &SwiftRequest{request, time.Now()}
 	defer server.LogRequest(newWriter, newRequest) // log the request after return
 
 	switch request.Method {
