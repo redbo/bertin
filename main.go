@@ -283,7 +283,7 @@ func GetDefault(h http.Header, key string, dfl string) string {
 }
 
 func (server ObjectServer) LogRequest(writer *SwiftWriter, request *SwiftRequest) {
-	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
+	go server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
 		request.RemoteAddr,
 		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
 		request.Method,
