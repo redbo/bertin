@@ -26,7 +26,28 @@ type ObjectServer struct {
 	logger         *syslog.Writer
 }
 
-func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+// ResponseWriter that saves its status - used for logging.
+
+type SwiftWriter struct {
+    http.ResponseWriter
+    Status int
+}
+
+func (w *SwiftWriter) WriteHeader(status int) {
+    w.ResponseWriter.WriteHeader(status)
+    w.Status = status
+}
+
+// http.Request that also contains swift-specific info about the request
+
+type SwiftRequest struct {
+    *http.Request
+    Start         time.Time
+}
+
+// request handlers
+
+func (server ObjectServer) ObjGetHandler(writer *SwiftWriter, request *SwiftRequest, vars map[string]string) {
 	headers := writer.Header()
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
@@ -115,7 +136,7 @@ func (server ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *ht
 	}
 }
 
-func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+func (server ObjectServer) ObjPutHandler(writer *SwiftWriter, request *SwiftRequest, vars map[string]string) {
 	outHeaders := writer.Header()
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
@@ -180,7 +201,7 @@ func (server ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *ht
 	http.Error(writer, http.StatusText(http.StatusCreated), http.StatusCreated)
 }
 
-func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+func (server ObjectServer) ObjDeleteHandler(writer *SwiftWriter, request *SwiftRequest, vars map[string]string) {
 	hashDir, err := ObjHashDir(vars, server)
 	if err != nil {
 		http.Error(writer, "Insufficent Storage", 507)
@@ -243,7 +264,7 @@ func (server ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request 
 	}
 }
 
-func (server ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, request *http.Request, vars map[string]string) {
+func (server ObjectServer) ObjReplicateHandler(writer *SwiftWriter, request *SwiftRequest, vars map[string]string) {
 	hashes, err := GetHashes(server, vars["device"], vars["partition"], strings.Split(vars["suffixes"], "-"))
 	if err != nil {
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -261,14 +282,19 @@ func GetDefault(h http.Header, key string, dfl string) string {
 	return val
 }
 
-type SaveStatusWriter struct {
-	http.ResponseWriter
-	Status int
-}
-
-func (w *SaveStatusWriter) WriteHeader(status int) {
-	w.ResponseWriter.WriteHeader(status)
-	w.Status = status
+func (server ObjectServer) LogRequest(writer *SwiftWriter, request *SwiftRequest) {
+	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
+		request.RemoteAddr,
+		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
+		request.Method,
+		request.URL.Path,
+		writer.Status,
+		GetDefault(writer.Header(), "Content-Length", "-"),
+		GetDefault(request.Header, "Referer", "-"),
+		GetDefault(request.Header, "X-Trans-Id", "-"),
+		GetDefault(request.Header, "User-Agent", "-"),
+		time.Since(request.Start).Seconds(),
+		"-")) // TODO: "additional info"
 }
 
 func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -296,33 +322,23 @@ func (server ObjectServer) ServeHTTP(writer http.ResponseWriter, request *http.R
 			}
 		}
 	}
-	start := time.Now()
-	newWriter := &SaveStatusWriter{writer, 200}
+
+	newWriter := &SwiftWriter{writer, 200}
+    newRequest := &SwiftRequest{request, time.Now()}
+	defer server.LogRequest(newWriter, newRequest) // log the request after return
+
 	switch request.Method {
 	case "GET":
-		server.ObjGetHandler(newWriter, request, vars)
+		server.ObjGetHandler(newWriter, newRequest, vars)
 	case "HEAD":
-		server.ObjGetHandler(newWriter, request, vars)
+		server.ObjGetHandler(newWriter, newRequest, vars)
 	case "PUT":
-		server.ObjPutHandler(newWriter, request, vars)
+		server.ObjPutHandler(newWriter, newRequest, vars)
 	case "DELETE":
-		server.ObjDeleteHandler(newWriter, request, vars)
+		server.ObjDeleteHandler(newWriter, newRequest, vars)
 	case "REPLICATE":
-		server.ObjReplicateHandler(newWriter, request, vars)
+		server.ObjReplicateHandler(newWriter, newRequest, vars)
 	}
-
-	server.logger.Info(fmt.Sprintf("%s - - [%s] \"%s %s\" %d %s \"%s\" \"%s\" \"%s\" %.4f \"%s\"",
-		request.RemoteAddr,
-		time.Now().Format("02/Jan/2006:15:04:05 -0700"),
-		request.Method,
-		request.URL.Path,
-		newWriter.Status,
-		GetDefault(writer.Header(), "Content-Length", "-"),
-		GetDefault(request.Header, "Referer", "-"),
-		GetDefault(request.Header, "X-Trans-Id", "-"),
-		GetDefault(request.Header, "User-Agent", "-"),
-		time.Since(start).Seconds(),
-		"-")) // TODO: "additional info"
 }
 
 func RunServer(conf string) {

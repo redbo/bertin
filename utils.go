@@ -240,7 +240,7 @@ func Urlencode(str string) string {
 	return strings.Replace(url.QueryEscape(str), "+", "%20", -1)
 }
 
-func UpdateContainer(metadata map[string]interface{}, request *http.Request, vars map[string]string) {
+func UpdateContainer(metadata map[string]interface{}, request *SwiftRequest, vars map[string]string) {
 	client := &http.Client{}
 	contpartition := request.Header.Get("X-Container-Partition")
 	conthosts := strings.Split(request.Header.Get("X-Container-Host"), ",")
@@ -273,7 +273,7 @@ func UpdateContainer(metadata map[string]interface{}, request *http.Request, var
 }
 
 // TODO: UNTESTED
-func UpdateDeleteAt(request *http.Request, vars map[string]string, metadata map[string]interface{}) {
+func UpdateDeleteAt(request *SwiftRequest, vars map[string]string, metadata map[string]interface{}) {
 	if _, ok := metadata["X-Delete-At"]; !ok {
 		return
 	}
