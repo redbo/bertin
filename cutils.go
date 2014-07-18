@@ -8,6 +8,7 @@ package main
 #include <sys/types.h>
 #include <pwd.h>
 #include <stdlib.h>
+#include <fcntl.h>
 */
 import "C"
 import "unsafe"
@@ -24,6 +25,10 @@ func FSetXattr(fd int, name string, value []byte) int {
 	ret := C.fsetxattr(C.int(fd), cname, unsafe.Pointer(&value[0]), C.size_t(len(value)), 0)
 	C.free(unsafe.Pointer(cname))
 	return int(ret)
+}
+
+func DropBufferCache(fd int, length int64) {
+    C.posix_fadvise(C.int(fd), C.__off_t(0), C.__off_t(length), C.int(4))
 }
 
 func DropPrivileges(name string) {

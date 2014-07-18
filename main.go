@@ -115,10 +115,14 @@ func (server ObjectServer) ObjGetHandler(writer *SwiftWriter, request *SwiftRequ
 	}
 	headers.Set("Content-Type", metadata["Content-Type"].(string))
 	headers.Set("Content-Length", metadata["Content-Length"].(string))
+	contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64)
+	if err != nil {
+		contentLength, _ = file.Seek(0, os.SEEK_END)
+		file.Seek(0, os.SEEK_SET)
+	}
 
 	if rangeHeader := request.Header.Get("Range"); rangeHeader != "" {
-		fileSize, _ := file.Seek(0, os.SEEK_END)
-		ranges, err := ParseRange(rangeHeader, fileSize)
+		ranges, err := ParseRange(rangeHeader, contentLength)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusRequestedRangeNotSatisfiable), http.StatusRequestedRangeNotSatisfiable)
 			return
@@ -131,10 +135,10 @@ func (server ObjectServer) ObjGetHandler(writer *SwiftWriter, request *SwiftRequ
 			return
 		}
 	}
-	file.Seek(0, os.SEEK_SET)
 	writer.WriteHeader(http.StatusOK)
 	if request.Method == "GET" {
 		io.Copy(writer, file)
+		go DropBufferCache(int(file.Fd()), contentLength)
 	} else {
 		writer.Write([]byte{})
 	}
@@ -185,6 +189,7 @@ func (server ObjectServer) ObjPutHandler(writer *SwiftWriter, request *SwiftRequ
 		fmt.Printf("ERROR: %s\n", err)
 		return
 	}
+	go DropBufferCache(int(tempFile.Fd()), totalSize)
 	metadata["Content-Length"] = strconv.FormatInt(totalSize, 10)
 	metadata["ETag"] = fmt.Sprintf("%x", hash.Sum(nil))
 	requestEtag := request.Header.Get("ETag")
