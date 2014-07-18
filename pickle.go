@@ -28,15 +28,13 @@ var highestProtocol *C.PyObject
 var pickleLock sync.Mutex
 
 func pickleInit() {
-	if initialized == 0 {
-		C.Py_Initialize()
-		var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
-		pickleLoads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
-		pickleDumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
-		highestProtocol = C.PyObject_GetAttrString(cPickle, C.CString("HIGHEST_PROTOCOL"))
-		C.Py_DecRef(cPickle)
-		initialized = 1
-	}
+	C.Py_Initialize()
+	var cPickle *C.PyObject = C.PyImport_ImportModule(C.CString("cPickle"))
+	pickleLoads = C.PyObject_GetAttrString(cPickle, C.CString("loads"))
+	pickleDumps = C.PyObject_GetAttrString(cPickle, C.CString("dumps"))
+	highestProtocol = C.PyObject_GetAttrString(cPickle, C.CString("HIGHEST_PROTOCOL"))
+	C.Py_DecRef(cPickle)
+	initialized = 1
 }
 
 func pyObjToInterface(o *C.PyObject) interface{} {
@@ -102,7 +100,9 @@ func interfaceToPyObj(o interface{}) *C.PyObject {
 
 func PickleLoads(data string) interface{} {
 	pickleLock.Lock()
-	pickleInit()
+	if initialized == 0 {
+	  pickleInit()
+	}
 	datastr := C.CString(data)
 	str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
 	C.free(unsafe.Pointer(datastr))
@@ -116,7 +116,9 @@ func PickleLoads(data string) interface{} {
 
 func PickleDumps(v interface{}) string {
 	pickleLock.Lock()
-	pickleInit()
+	if initialized == 0 {
+	  pickleInit()
+	}
 	obj := interfaceToPyObj(v)
 	str := C.PyObject_CallFunction2(pickleDumps, obj, highestProtocol)
 	gostr := pyObjToInterface(str)
