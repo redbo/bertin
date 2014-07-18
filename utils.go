@@ -243,6 +243,9 @@ func Urlencode(str string) string {
 func UpdateContainer(metadata map[string]interface{}, request *SwiftRequest, vars map[string]string) {
 	client := &http.Client{}
 	contpartition := request.Header.Get("X-Container-Partition")
+	if contpartition == "" {
+		return
+	}
 	conthosts := strings.Split(request.Header.Get("X-Container-Host"), ",")
 	contdevices := strings.Split(request.Header.Get("X-Container-Device"), ",")
 	for index := range conthosts {

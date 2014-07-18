@@ -101,7 +101,7 @@ func interfaceToPyObj(o interface{}) *C.PyObject {
 func PickleLoads(data string) interface{} {
 	pickleLock.Lock()
 	if initialized == 0 {
-	  pickleInit()
+		pickleInit()
 	}
 	datastr := C.CString(data)
 	str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
@@ -117,7 +117,7 @@ func PickleLoads(data string) interface{} {
 func PickleDumps(v interface{}) string {
 	pickleLock.Lock()
 	if initialized == 0 {
-	  pickleInit()
+		pickleInit()
 	}
 	obj := interfaceToPyObj(v)
 	str := C.PyObject_CallFunction2(pickleDumps, obj, highestProtocol)
