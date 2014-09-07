@@ -96,21 +96,27 @@ func WriteFileAtomic(filename string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-func LockPath(directory string) (*os.File, error) {
-	lockfile := filepath.Join(directory, ".lock")
-	file, err := os.Open(lockfile)
-	if err != nil {
-		return nil, errors.New("Unable to open file.")
-	}
-	syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
-	return file, nil
+func LockPath(directory string, timeout int) (*os.File, error) {
+    lockfile := filepath.Join(directory, ".lock")
+    file, err := os.OpenFile(lockfile, os.O_RDWR|os.O_CREATE, 0660)
+    if err != nil {
+        return nil, errors.New("Unable to open file.")
+    }
+    for stop := time.Now().Add(time.Duration(timeout)); time.Now().Before(stop); {
+        time.Sleep(time.Millisecond * 100)
+        err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX | syscall.LOCK_NB)
+        if err == nil {
+            return file, nil
+        }
+    }
+    return nil, err
 }
 
 func InvalidateHash(hashDir string, atomic bool) {
 	// TODO: return errors
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
-	partitionLock, err := LockPath(partitionDir)
+	partitionLock, err := LockPath(partitionDir, 10)
 	if err != nil {
 		return
 	}
@@ -194,7 +200,7 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 			}
 		}
 	}
-	partitionLock, err := LockPath(partitionDir)
+	partitionLock, err := LockPath(partitionDir, 10)
 	if err != nil {
 		return nil, err
 	}
