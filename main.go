@@ -298,7 +298,7 @@ func (server ObjectServer) ObjReplicateHandler(writer *SwiftWriter, request *Swi
 		return
 	}
 	writer.WriteHeader(http.StatusOK)
-	writer.Write([]byte(PickleDumps(hashes)))
+	writer.Write(PickleDumps(hashes))
 }
 
 func GetDefault(h http.Header, key string, dfl string) string {

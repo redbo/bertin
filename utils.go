@@ -42,7 +42,7 @@ func ReadMetadataFd(fd int) (map[interface{}]interface{}, error) {
 		}
 		offset += length
 	}
-	v := PickleLoads(string(pickledMetadata[0:offset]))
+	v := PickleLoads(pickledMetadata[0:offset])
 	return v.(map[interface{}]interface{}), nil
 }
 
@@ -126,12 +126,12 @@ func InvalidateHash(hashDir string, atomic bool) {
 	if err != nil {
 		return
 	}
-	v := PickleLoads(string(data))
+	v := PickleLoads(data)
 	v.(map[string]interface{})[suffDir] = nil
 	if atomic {
-		WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
+		WriteFileAtomic(pklFile, PickleDumps(v), 0666)
 	} else {
-		ioutil.WriteFile(pklFile, []byte(PickleDumps(v)), 0666)
+		ioutil.WriteFile(pklFile, PickleDumps(v), 0666)
 	}
 }
 
@@ -188,7 +188,7 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 	if err != nil {
 		return nil, err
 	}
-	v := PickleLoads(string(data)).(map[string]interface{})
+	v := PickleLoads(data).(map[string]interface{})
 	for _, suffix := range recalculate {
 		v[suffix] = nil
 	}
@@ -205,7 +205,7 @@ func GetHashes(server ObjectServer, device string, partition string, recalculate
 		return nil, err
 	}
 	defer partitionLock.Close()
-	WriteFileAtomic(pklFile, []byte(PickleDumps(v)), 0666)
+	WriteFileAtomic(pklFile, PickleDumps(v), 0666)
 	return v, nil
 }
 

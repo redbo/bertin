@@ -9,6 +9,7 @@ package main
 INLINE int myPyString_Check(PyObject *o) {return PyString_Check(o);}
 INLINE int myPyDict_Check(PyObject *o) {return PyDict_Check(o);}
 INLINE int myPyInt_Check(PyObject *o) {return PyInt_Check(o);}
+INLINE int myPyTuple_Check(PyObject *o) {return PyTuple_Check(o);}
 INLINE PyObject *PyObject_CallFunction1(PyObject *f, PyObject *o1)
     {return PyObject_CallFunctionObjArgs(f, o1, NULL);}
 INLINE PyObject *PyObject_CallFunction2(PyObject *f, PyObject *o1, PyObject *o2)
@@ -45,14 +46,21 @@ func pyObjToInterface(o *C.PyObject) interface{} {
 	} else if C.myPyDict_Check(o) != 0 {
 		v := make(map[interface{}]interface{})
 		items := C.PyDict_Items(o)
-		for i := 0; i < int(C.PyList_Size(items)); i++ {
-			item := C.PyList_GetItem(items, C.Py_ssize_t(i))
+		for i := 0; i < int(C.PyTuple_Size(items)); i++ {
+			item := C.PyTuple_GetItem(items, C.Py_ssize_t(i))
 			key := C.PyTuple_GetItem(item, 0)
 			value := C.PyTuple_GetItem(item, 1)
 			v[pyObjToInterface(key)] = pyObjToInterface(value)
 		}
 		C.Py_DecRef(items)
 		return v
+	} else if C.myPyTuple_Check(o) != 0 {
+		length := int(C.PyTuple_Size(o))
+		list := make([]interface{}, length)
+		for i := 0; i < length; i++ {
+			list[i] = pyObjToInterface(C.PyTuple_GetItem(o, C.Py_ssize_t(i)))
+		}
+		return list
 	}
 	return nil
 }
@@ -93,19 +101,23 @@ func interfaceToPyObj(o interface{}) *C.PyObject {
 			dictAddItem(dict, key, value)
 		}
 		return dict
+	case []interface{}:
+		list := C.PyTuple_New(C.Py_ssize_t(len(o.([]interface{}))))
+		for i := range o.([]interface{}) {
+			C.PyTuple_SetItem(list, C.Py_ssize_t(i), interfaceToPyObj(o.([]interface{})[i]))
+		}
+		return list
 	default:
 		return C.PyNone()
 	}
 }
 
-func PickleLoads(data string) interface{} {
+func PickleLoads(data []byte) interface{} {
 	pickleLock.Lock()
 	if initialized == 0 {
 		pickleInit()
 	}
-	datastr := C.CString(data)
-	str := C.PyString_FromStringAndSize(datastr, C.Py_ssize_t(len(data)))
-	C.free(unsafe.Pointer(datastr))
+	str := C.PyString_FromStringAndSize((*C.char)(unsafe.Pointer(&data[0])), C.Py_ssize_t(len(data)))
 	obj := C.PyObject_CallFunction1(pickleLoads, str)
 	v := pyObjToInterface(obj)
 	C.Py_DecRef(obj)
@@ -114,32 +126,16 @@ func PickleLoads(data string) interface{} {
 	return v
 }
 
-func PickleDumps(v interface{}) string {
+func PickleDumps(v interface{}) []byte {
 	pickleLock.Lock()
 	if initialized == 0 {
 		pickleInit()
 	}
 	obj := interfaceToPyObj(v)
 	str := C.PyObject_CallFunction2(pickleDumps, obj, highestProtocol)
-	gostr := pyObjToInterface(str)
+	gobytes := C.GoBytes(unsafe.Pointer(C.PyString_AsString(str)), C.int(C.PyString_Size(str)))
 	C.Py_DecRef(obj)
 	C.Py_DecRef(str)
 	pickleLock.Unlock()
-	return gostr.(string)
+	return gobytes
 }
-
-/*
-import (
-	"github.com/vmihailenco/msgpack"
-)
-
-func PickleLoads(data string) interface{} {
-	var out interface{}
-	msgpack.Unmarshal([]byte(data), &out)
-	return out
-}
-func PickleDumps(v interface{}) string {
-	b, _:= msgpack.Marshal(v)
-	return string(b)
-}
-*/
